@@ -1,0 +1,5 @@
+export const PROTECTION_CONSTANTS = {
+  IDEMPOTENCY_HEADER: 'x-idempotency-key',
+  LOCK_TIMEOUT_MS: 5000,
+  DUPLICATE_WINDOW_MS: 1500,
+};
