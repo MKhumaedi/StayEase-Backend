@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "npx tsx watch src/server.ts",
-    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js",
+    "build": "prisma generate && esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js",
+    "postinstall": "prisma generate",
     "start": "node dist/server.js"
   },
   "dependencies": {
