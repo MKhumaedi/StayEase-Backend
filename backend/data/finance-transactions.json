@@ -1,0 +1,36 @@
+[
+  {
+    "bookingId": "a34f8109-39e6-4cc8-a2de-bb3e7ef58b7c",
+    "paymentId": "pay-mt-1782372188724",
+    "propertyId": "042ee26e-dcd7-4e95-be9d-aa466516e92b",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "travelerId": "bc242287-c276-4b41-8ad9-3b66b1c3ca02",
+    "grossAmount": 590000,
+    "platformFee": 11800,
+    "hostRevenue": 578200,
+    "tax": 0,
+    "paymentMethod": "midtrans",
+    "paymentStatus": "PAID",
+    "transactionStatus": "SETTLED",
+    "settlementTime": "2026-06-25T07:23:12.104Z",
+    "midtransOrderId": "SE-8590",
+    "midtransTransactionId": "a6400c4e-077d-45bc-b0c3-b0f67d00d57d"
+  },
+  {
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "paymentId": "pay-mt-1782372996077",
+    "propertyId": "042ee26e-dcd7-4e95-be9d-aa466516e92b",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "travelerId": "bc242287-c276-4b41-8ad9-3b66b1c3ca02",
+    "grossAmount": 590000,
+    "platformFee": 11800,
+    "hostRevenue": 578200,
+    "tax": 0,
+    "paymentMethod": "manual",
+    "paymentStatus": "PAID",
+    "transactionStatus": "SETTLED",
+    "settlementTime": "2026-06-25T07:36:39.250Z",
+    "midtransOrderId": "SE-2795",
+    "midtransTransactionId": "d95a88d1-724b-4764-a371-d16a4d505838"
+  }
+]

@@ -6,5 +6,6 @@ const router = Router();
 
 router.post('/midtrans/create-transaction', requireAuth as any, (req, res) => paymentController.createTransaction(req, res));
 router.post('/midtrans/webhook', (req, res) => paymentController.handleWebhook(req, res));
+router.post('/midtrans/sync', requireAuth as any, (req, res) => paymentController.syncTransaction(req, res));
 
 export default router;

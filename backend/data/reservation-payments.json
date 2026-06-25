@@ -1,0 +1,12 @@
+[
+  {
+    "bookingId": "a34f8109-39e6-4cc8-a2de-bb3e7ef58b7c",
+    "status": "PAID",
+    "timestamp": "2026-06-25T07:23:12.103Z"
+  },
+  {
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "status": "PAID",
+    "timestamp": "2026-06-25T07:36:39.248Z"
+  }
+]

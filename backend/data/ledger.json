@@ -1,0 +1,20 @@
+[
+  {
+    "id": "LEDGER-1782372192147",
+    "bookingId": "a34f8109-39e6-4cc8-a2de-bb3e7ef58b7c",
+    "paymentId": "pay-mt-1782372188724",
+    "type": "CREDIT",
+    "description": "Payment for SE-8590",
+    "amount": 590000,
+    "timestamp": "2026-06-25T07:23:12.147Z"
+  },
+  {
+    "id": "LEDGER-1782372999297",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "paymentId": "pay-mt-1782372996077",
+    "type": "CREDIT",
+    "description": "Payment for SE-2795",
+    "amount": 590000,
+    "timestamp": "2026-06-25T07:36:39.297Z"
+  }
+]

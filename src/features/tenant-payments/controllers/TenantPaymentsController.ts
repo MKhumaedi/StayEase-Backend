@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { prisma } from '../../../database/prisma';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
 import { AuditTrailService } from '../../payment-proof/services/AuditTrailService';
+import { BookingStatus } from '@prisma/client';
+import { MidtransTransactionFlow } from '../../payments/services/MidtransTransactionFlow';
+import { midtransService } from '../../payments/services/MidtransService';
 
 function parseMeta(rawUrl: string, guestId: string, date: Date) {
   let meta = { 
@@ -43,13 +46,30 @@ async function notifyReject(guestId: string, code: string, reason: string) {
 }
 
 export class TenantPaymentsController {
+  async fetchTenantBookings(tenantId: string) {
+    return prisma.booking.findMany({
+      where: { property: { tenantId }, deletedAt: null },
+      include: { property: true, paymentProof: true },
+      orderBy: { updatedAt: 'desc' }
+    });
+  }
+
+  async syncPendingPayments(bookings: any[]) {
+    const pending = bookings.filter((b: any) => b.status === 'WAITING_PAYMENT').slice(0, 5);
+    await Promise.all(pending.map(async (b: any) => {
+      try {
+        await midtransService.syncPaymentStatus(b.id);
+      } catch (e) {
+        console.error('Proactive sync on listPayments failed:', e);
+      }
+    }));
+  }
+
   async listPayments(req: any, res: Response): Promise<void> {
     try {
-      const bookings = await prisma.booking.findMany({
-        where: { property: { tenantId: req.userId }, paymentProof: { isNot: null } },
-        include: { property: true, paymentProof: true },
-        orderBy: { updatedAt: 'desc' }
-      });
+      let bookings = await this.fetchTenantBookings(req.userId);
+      await this.syncPendingPayments(bookings);
+      bookings = await this.fetchTenantBookings(req.userId);
       res.json(bookings);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -71,16 +91,7 @@ export class TenantPaymentsController {
         res.status(403).json({ error: 'Forbidden' });
         return;
       }
-      const meta = parseMeta(b.paymentProof.proofUrl, b.guestId, b.paymentProof.createdAt);
-      meta.status = 'APPROVED';
-      meta.updatedAt = new Date().toISOString();
-
-      await prisma.$transaction([
-        prisma.booking.update({ where: { id: bookingId }, data: { status: 'CONFIRMED' } }),
-        prisma.paymentProof.update({ where: { bookingId }, data: { proofUrl: JSON.stringify(meta) } })
-      ]);
-
-      await notifyApprove(b.guestId, req.userId, b.bookingCode);
+      await MidtransTransactionFlow.execute(b, BookingStatus.CONFIRMED, b.paymentProof.id);
       AuditTrailService.log(req.userId, bookingId, 'APPROVE_PAYMENT');
       res.json({ success: true });
     } catch (err: any) {

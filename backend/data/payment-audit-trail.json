@@ -1,0 +1,56 @@
+[
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "action": "CHECK_IN",
+    "timestamp": "2026-06-25T07:37:41.307Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "action": "CHECK_IN",
+    "timestamp": "2026-06-25T07:37:37.827Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "action": "APPROVE_PAYMENT",
+    "timestamp": "2026-06-25T07:36:41.741Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "action": "APPROVE_PAYMENT",
+    "timestamp": "2026-06-25T07:36:39.299Z"
+  },
+  {
+    "userId": "bc242287-c276-4b41-8ad9-3b66b1c3ca02",
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "action": "UPLOAD_PROOF",
+    "timestamp": "2026-06-25T07:36:30.810Z"
+  },
+  {
+    "userId": "bc242287-c276-4b41-8ad9-3b66b1c3ca02",
+    "bookingId": "f1debf80-c963-4e69-a328-2124598efcf9",
+    "action": "UPLOAD_PROOF",
+    "timestamp": "2026-06-25T07:00:04.961Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "7532184a-ce82-4436-af80-4becb36a4d06",
+    "action": "REJECT_PAYMENT",
+    "timestamp": "2026-06-25T04:32:53.936Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "7532184a-ce82-4436-af80-4becb36a4d06",
+    "action": "REJECT_PAYMENT",
+    "timestamp": "2026-06-25T04:32:52.084Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "035f9fce-cd08-466b-a27f-8d10c45258e1",
+    "action": "APPROVE_PAYMENT",
+    "timestamp": "2026-06-24T09:47:08.764Z"
+  }
+]

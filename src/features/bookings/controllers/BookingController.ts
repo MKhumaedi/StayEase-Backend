@@ -5,6 +5,7 @@ import { CreateBookingSchema, UploadPaymentProofSchema, BookingSearchSchema } fr
 import { AuthenticatedRequest } from '../../../middlewares/AuthMiddleware';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
 import { AuditTrailService } from '../../payment-proof/services/AuditTrailService';
+import { midtransService } from '../../payments/services/MidtransService';
 
 export class BookingController {
   async createBooking(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -63,19 +64,36 @@ export class BookingController {
     }
   }
 
+  private async syncBookingList(bookings: any[]) {
+    const pending = bookings.filter((b: any) => b.status === 'WAITING_PAYMENT').slice(0, 5);
+    await Promise.all(pending.map(async (b: any) => {
+      try {
+        await midtransService.syncPaymentStatus(b.id);
+      } catch (e) {
+        console.error('Proactive sync on listBookings failed:', e);
+      }
+    }));
+  }
+
+  private async fetchSearchedBookings(req: AuthenticatedRequest, validated: any) {
+    return bookingRepository.search({
+      status: validated.status as any, search: validated.search,
+      page: validated.page, limit: validated.limit,
+      guestId: req.userRole === 'USER' ? req.userId : (validated.guestId || undefined),
+      tenantId: req.userRole === 'TENANT' ? req.userId : undefined,
+      propertyId: validated.propertyId,
+      startDate: validated.startDate,
+      endDate: validated.endDate
+    });
+  }
+
   async listBookings(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const validated = BookingSearchSchema.parse(req.query);
       await bookingRepository.expireOldPendingBookings(30);
-      const results = await bookingRepository.search({
-        status: validated.status as any, search: validated.search,
-        page: validated.page, limit: validated.limit,
-        guestId: req.userRole === 'USER' ? req.userId : (validated.guestId || undefined),
-        tenantId: req.userRole === 'TENANT' ? req.userId : undefined,
-        propertyId: validated.propertyId,
-        startDate: validated.startDate,
-        endDate: validated.endDate
-      });
+      let results = await this.fetchSearchedBookings(req, validated);
+      await this.syncBookingList(results.data);
+      results = await this.fetchSearchedBookings(req, validated);
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
@@ -88,10 +106,14 @@ export class BookingController {
   async getBooking(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const booking = await bookingRepository.findById(id);
+      let booking = await bookingRepository.findById(id);
       if (!booking) return res.status(404).json({ error: 'Not found' }) as any;
       const ok = req.userRole === 'ADMIN' || booking.guestId === req.userId || booking.property.tenantId === req.userId;
       if (!ok) return res.status(403).json({ error: 'Denied' }) as any;
+      if (booking.status === 'WAITING_PAYMENT') {
+        await midtransService.syncPaymentStatus(id).catch(() => {});
+        booking = await bookingRepository.findById(id) || booking;
+      }
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');

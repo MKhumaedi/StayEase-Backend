@@ -1,10 +1,28 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { prisma } from '../../../database/prisma';
 import { BookingStatus } from '@prisma/client';
-import { NotificationEngine } from '../../notifications/services/NotificationEngine';
+import { MidtransTransactionFlow } from './MidtransTransactionFlow';
 
 function error(msg: string): never {
   throw new Error(msg);
+}
+
+export function saveMidtransOrderId(bookingId: string, orderId: string) {
+  const dir = path.join(process.cwd(), 'backend', 'data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'midtrans-order-ids.json');
+  const mapping = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  mapping[bookingId] = orderId;
+  fs.writeFileSync(file, JSON.stringify(mapping, null, 2));
+}
+
+export function getMidtransOrderId(bookingId: string): string | null {
+  const file = path.join(process.cwd(), 'backend', 'data', 'midtrans-order-ids.json');
+  if (!fs.existsSync(file)) return null;
+  const mapping = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return mapping[bookingId] || null;
 }
 
 export class MidtransService {
@@ -23,22 +41,33 @@ export class MidtransService {
   async createSnapToken(bookingId: string) {
     const b = await prisma.booking.findFirst({ where: { id: bookingId }, include: { property: true } });
     if (!b) error('Booking not found');
-    const res = await this.postSnap(b);
+    const orderId = `${b.bookingCode}-${Date.now().toString().slice(-4)}`;
+    saveMidtransOrderId(bookingId, orderId);
+    const res = await this.postSnap(b, orderId);
     return res.json();
   }
 
-  private async postSnap(b: any) {
+  private async postSnap(b: any, orderId: string) {
     return fetch(this.getSnapUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': this.getAuthHeader() },
-      body: JSON.stringify(this.buildPayload(b))
+      body: JSON.stringify(this.buildPayload(b, orderId))
     });
   }
 
-  private buildPayload(b: any) {
+  private buildCallbacks(fe: string) {
+    return {
+      finish: `${fe}/reservations?payment=success`,
+      unfinish: `${fe}/reservations?payment=unfinish`,
+      error: `${fe}/reservations?payment=error`
+    };
+  }
+
+  private buildPayload(b: any, orderId: string) {
+    const fe = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000';
     return {
       transaction_details: {
-        order_id: `${b.bookingCode}-${Date.now().toString().slice(-4)}`,
+        order_id: orderId,
         gross_amount: Number(b.totalAmount)
       },
       customer_details: {
@@ -46,131 +75,111 @@ export class MidtransService {
         email: b.guestEmail,
         phone: b.guestPhone
       },
-      credit_card: { secure: true }
+      credit_card: { secure: true },
+      callbacks: this.buildCallbacks(fe)
     };
   }
 
-  verifyNotification(payload: any): boolean {
-    const key = process.env.MIDTRANS_SERVER_KEY || '';
-    if (!key) {
-      console.warn('[MidtransService] MIDTRANS_SERVER_KEY not specified. Bypassing validation in non-production simulation.');
-      return true;
-    }
+  private getPossibleAmounts(grossVal: any): string[] {
+    return [String(grossVal), Number(grossVal).toFixed(2), Number(grossVal).toFixed(0)];
+  }
 
-    // Midtrans gross_amount may be a string ("842.00"), a number (842) or float.
-    // Try concatenating with multiple common number string layouts to make validation robust.
-    const grossVal = payload.gross_amount;
-    const possibleAmts = [
-      String(grossVal),
-      Number(grossVal).toFixed(2),
-      Number(grossVal).toFixed(0)
-    ];
-
+  private checkSignature(orderId: string, statusCode: string, signatureKey: string, serverKey: string, possibleAmts: string[]): boolean {
     for (const amt of possibleAmts) {
-      const raw = payload.order_id + payload.status_code + amt + key;
+      const raw = orderId + statusCode + amt + serverKey;
       const computed = crypto.createHash('sha512').update(raw).digest('hex');
-      if (computed === payload.signature_key) {
-        console.log(`[MidtransService] Signature matched with gross_amount format: "${amt}"`);
-        return true;
-      }
-    }
-
-    console.warn(`[MidtransService] Mismatched webhook signature for order: ${payload.order_id}`);
-    
-    // Developer or simulated test run bypass check
-    if (payload.signature_key === 'bypass' || process.env.NODE_ENV !== 'production') {
-      console.log('[MidtransService] Dev/Sandbox mode detected: permitting webhook execution.');
-      return true;
+      if (computed === signatureKey) return true;
     }
     return false;
   }
 
-  async handleNotification(payload: any) {
-    if (!this.verifyNotification(payload)) {
-      error('Signature verification failed');
-    }
-
-    // Extract bookingCode robustly from order_id (e.g., "SE-5846-0170" or "SE-5846" -> "SE-5846")
-    let code = payload.order_id;
-    if (code && code.includes('-')) {
-      const parts = code.split('-');
-      // If order_id is built as ${bookingCode}-${suffix}, remove the last segment
-      if (parts.length >= 2) {
-        code = parts.slice(0, parts.length - 1).join('-');
-      }
-    }
-
-    console.log(`[MidtransService] Extracted booking code "${code}" from order_id "${payload.order_id}"`);
-
-    const b = await prisma.booking.findFirst({ 
-      where: { bookingCode: code }, 
-      include: { property: true } 
-    });
-    if (!b) {
-      error(`Booking not found for code: "${code}"`);
-    }
-
-    const status = this.mapStatus(payload.transaction_status);
-    
-    // Update the booking status in DB
-    const updated = await prisma.booking.update({ 
-      where: { id: b.id }, 
-      data: { status } 
-    });
-    
-    console.log(`[MidtransService] Upgraded booking "${b.bookingCode}" (ID: ${b.id}) status to ${status}`);
-
-    // Create / save payment record inside PaymentProof table
-    const trxId = payload.transaction_id || `midtrans-tx-${Date.now()}`;
-    await prisma.paymentProof.upsert({
-      where: { bookingId: b.id },
-      update: { proofUrl: `midtrans://${trxId}`, deletedAt: null },
-      create: { bookingId: b.id, proofUrl: `midtrans://${trxId}` }
-    });
-    console.log(`[MidtransService] Created/Updated payment proof reference for "${b.bookingCode}" -> midtrans://${trxId}`);
-
-    // Send notifications to both the traveler guest and the property host (notifying key parties)
-    await this.notify(b, status);
-
-    return { success: true, status, bookingId: b.id };
+  verifyNotification(payload: any): boolean {
+    const key = process.env.MIDTRANS_SERVER_KEY || '';
+    if (!key) return true;
+    const verified = this.checkSignature(payload?.order_id, payload?.status_code, payload?.signature_key, key, this.getPossibleAmounts(payload?.gross_amount));
+    if (verified) return true;
+    return payload?.signature_key === 'bypass' || process.env.NODE_ENV !== 'production';
   }
 
-  private mapStatus(midtransStatus: string): BookingStatus {
+  extractBookingCode(orderId: string): string {
+    if (!orderId) return '';
+    const parts = orderId.split('-');
+    return parts.length >= 2 ? parts.slice(0, -1).join('-') : orderId;
+  }
+
+  private async fetchBooking(code: string) {
+    const b = await prisma.booking.findFirst({ where: { bookingCode: code }, include: { property: true } });
+    return b || error(`Booking not found for code: "${code}"`);
+  }
+
+  private checkIdempotency(currentStatus: BookingStatus, targetStatus: BookingStatus): boolean {
+    if (currentStatus === targetStatus) return true;
+    const isOver = currentStatus === BookingStatus.CONFIRMED || currentStatus === BookingStatus.COMPLETED;
+    const isPendingOrExpire = targetStatus === BookingStatus.WAITING_PAYMENT || targetStatus === BookingStatus.AUTO_EXPIRED;
+    return isOver && isPendingOrExpire;
+  }
+
+  private mapStatus(midtransStatus: string, fraudStatus?: string): BookingStatus {
+    if (midtransStatus === 'capture') {
+      return fraudStatus === 'challenge' ? BookingStatus.WAITING_CONFIRMATION : BookingStatus.CONFIRMED;
+    }
     const mapping: Record<string, BookingStatus> = {
       pending: BookingStatus.WAITING_PAYMENT,
       settlement: BookingStatus.CONFIRMED,
-      capture: BookingStatus.CONFIRMED,
       expire: BookingStatus.AUTO_EXPIRED,
       cancel: BookingStatus.CANCELLED,
-      deny: BookingStatus.CANCELLED
+      deny: BookingStatus.CANCELLED,
+      refund: BookingStatus.CANCELLED,
+      chargeback: BookingStatus.CANCELLED
     };
     return mapping[midtransStatus] || BookingStatus.WAITING_PAYMENT;
   }
 
-  private async notify(booking: any, status: BookingStatus) {
-    try {
-      const notifications = [
-        {
-          userId: booking.guestId,
-          title: `Reservation Payment: ${status}`,
-          message: `Your payment was completed successfully! Your stay at "${booking.property?.name}" is now ${status}.`,
-          type: 'BOOKING'
-        }
-      ];
+  async handleNotification(payload: any) {
+    if (!this.verifyNotification(payload)) error('Signature verification failed');
+    const b = await this.fetchBooking(this.extractBookingCode(payload?.order_id));
+    const status = this.mapStatus(payload?.transaction_status, payload?.fraud_status);
+    const trxId = payload?.transaction_id || `midtrans-tx-${Date.now()}`;
+    if (this.checkIdempotency(b.status, status)) {
+      return { success: true, status, bookingId: b.id, skipped: true };
+    }
+    await MidtransTransactionFlow.execute(b, status, trxId);
+    return { success: true, status, bookingId: b.id };
+  }
 
-      if (booking.property?.tenantId) {
-        notifications.push({
-          userId: booking.property.tenantId,
-          title: `Booking Paid: ${booking.bookingCode}`,
-          message: `Payment settled for reservation code ${booking.bookingCode} at your property "${booking.property.name}". Status is updated to ${status}.`,
-          type: 'BOOKING'
-        });
+  async getStatusFromMidtrans(orderId: string) {
+    const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+    const baseUrl = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
+    const res = await fetch(`${baseUrl}/${orderId}/status`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': this.getAuthHeader()
       }
+    });
+    if (!res.ok) throw new Error(`Status fetch failed for order ${orderId}`);
+    return res.json();
+  }
 
-      await NotificationEngine.createMany(notifications);
-      console.log(`[MidtransService] Successfully processed user metrics and dispatched system notifications.`);
+  async getStatusAndSync(b: any, orderId: string) {
+    const payload = await this.getStatusFromMidtrans(orderId);
+    const status = this.mapStatus(payload?.transaction_status, payload?.fraud_status);
+    const trxId = payload?.transaction_id || `midtrans-tx-${Date.now()}`;
+    if (!this.checkIdempotency(b.status, status)) {
+      await MidtransTransactionFlow.execute(b, status, trxId);
+    }
+    return { success: true, status, bookingId: b.id };
+  }
+
+  async syncPaymentStatus(bookingId: string, orderId?: string) {
+    const b = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!b) error('Booking not found');
+    const actualOrderId = orderId || getMidtransOrderId(bookingId) || `${b.bookingCode}`;
+    try {
+      return await this.getStatusAndSync(b, actualOrderId);
     } catch (err: any) {
-      console.error('[MidtransService] Error during notification dispatch:', err.message);
+      return { success: true, status: b.status, bookingId: b.id, error: err.message };
     }
   }
 }

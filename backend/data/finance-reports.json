@@ -1,0 +1,18 @@
+[
+  {
+    "bookingId": "a34f8109-39e6-4cc8-a2de-bb3e7ef58b7c",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 590000,
+    "fee": 11800,
+    "net": 578200,
+    "createdAt": "2026-06-25T07:23:12.146Z"
+  },
+  {
+    "bookingId": "288bc167-e23a-4548-a0e6-86832c1ae3e6",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 590000,
+    "fee": 11800,
+    "net": 578200,
+    "createdAt": "2026-06-25T07:36:39.295Z"
+  }
+]
