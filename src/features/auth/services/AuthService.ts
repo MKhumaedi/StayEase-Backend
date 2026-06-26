@@ -5,6 +5,7 @@ import { Role } from '@prisma/client';
 import { prisma } from '../../../database/prisma';
 import { userRepository } from '../repositories/UserRepository';
 import { getSupabaseClient, getSupabaseAdmin } from './supabase';
+import { authTokenRepository } from '../repositories/AuthTokenRepository';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'stayease-secret-key-9021';
 
@@ -395,14 +396,9 @@ export class AuthService {
     }
   }
 
-  async requestPasswordReset(email: string) {
+  async requestPasswordReset(email: string, redirectToInput?: string) {
     const user = await userRepository.findByEmail(email);
     if (!user) throw new Error('Email address not registered');
-
-    let emailStatusMessage = 'Reset password instructions have been sent.';
-    
-    const { config } = await import('../../email/EmailConfig');
-    const { emailService } = await import('../../email/EmailService');
 
     // Create a client-decodable JWT token that completePasswordReset accepts as local override
     const token = jwt.sign(
@@ -411,73 +407,81 @@ export class AuthService {
       { expiresIn: '1h' }
     );
 
-    if (config.emailEnabled) {
-      try {
-        const resetLink = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password`;
-        const emailRes = await emailService.sendPasswordResetEmail(user.name, user.email, token, resetLink);
-        if (emailRes.skipped) {
-          emailStatusMessage = `Email service is not configured. Reset link: ${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
-        } else {
-          emailStatusMessage = 'Reset password instruction message dispatched successfully.';
-        }
-        return { email, success: true, message: emailStatusMessage, token };
-      } catch (err: any) {
-        console.error('[requestPasswordReset] Custom email sending error:', err);
-      }
+    // Save token in the PasswordReset database table
+    await authTokenRepository.createPasswordResetToken(user.id, token, new Date(Date.now() + 3600000));
+
+    const fallbackBaseUrl = process.env.APP_URL || 'http://localhost:3000';
+    const baseUrl = redirectToInput || fallbackBaseUrl;
+    let resetLink = baseUrl;
+    if (!resetLink.includes('/reset-password')) {
+      resetLink = `${resetLink.replace(/\/$/, '')}/reset-password`;
     }
+
+    console.log('[requestPasswordReset] Attempting to send reset password email via Supabase Auth for:', email);
 
     try {
       const supabase = getSupabaseClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.APP_URL || 'http://localhost:3000'}/reset-password`
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: resetLink
       });
 
+      console.log('[requestPasswordReset] Supabase resetPasswordForEmail response:', { data, error });
+
       if (error) {
-        console.warn('[requestPasswordReset] Supabase reset request failed, using local bypass link:', error.message);
-        emailStatusMessage = `Email service is not configured. Reset link: ${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
+        console.error('[requestPasswordReset] Supabase reset request failed:', error.message);
+        const errMsg = error.message?.toLowerCase() || '';
+        if (error.status === 429 || errMsg.includes('rate limit') || errMsg.includes('too many requests') || errMsg.includes('once every 60 seconds')) {
+          throw new Error('Terlalu banyak permintaan reset password. Silakan tunggu beberapa saat sebelum mencoba kembali.');
+        }
+        throw new Error(error.message || 'Gagal mengirim email reset password via Supabase.');
       }
     } catch (err: any) {
-      console.warn('[requestPasswordReset] Supabase unavailable, using local bypass link.');
-      emailStatusMessage = `Email service is not configured. Reset link: ${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
+      console.error('[requestPasswordReset] Error during Supabase resetPasswordForEmail dispatch:', err);
+      throw err;
     }
 
-    return { email, success: true, message: emailStatusMessage, token };
+    return { email, success: true, message: 'Reset password instruction message dispatched successfully.', token };
+  }
+
+  async validatePasswordResetToken(token: string) {
+    if (!token) throw new Error('Token is required');
+
+    // 1. Check local PasswordReset table first
+    const resetRecord = await authTokenRepository.findPasswordResetToken(token);
+    if (resetRecord) {
+      if (new Date() > resetRecord.expiresAt) {
+        throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
+      }
+      return { success: true, local: true };
+    }
+
+    // 2. Try Supabase getUser
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) {
+        throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
+      }
+      return { success: true, local: false };
+    } catch (err: any) {
+      throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
+    }
   }
 
   async completePasswordReset(token: string, password?: string) {
     if (!password) throw new Error('Password is required');
 
     let resolvedUser: any = null;
+    let isLocalToken = false;
 
-    // 1. Try local verification tokens / UUID / Email fallbacks first
-    try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
-      if (isUuid) {
-        resolvedUser = await userRepository.findById(token);
+    // 1. Try local verification tokens from the PasswordReset table
+    const resetRecord = await authTokenRepository.findPasswordResetToken(token);
+    if (resetRecord) {
+      if (new Date() > resetRecord.expiresAt) {
+        throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
       }
-
-      if (!resolvedUser) {
-        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(token);
-        if (isEmail) {
-          resolvedUser = await userRepository.findByEmail(token);
-        }
-      }
-
-      if (!resolvedUser) {
-        const decoded = jwt.decode(token) as any;
-        if (decoded) {
-          const userId = decoded.sub || decoded.id;
-          const email = decoded.email;
-          if (userId) {
-            resolvedUser = await userRepository.findById(userId);
-          }
-          if (!resolvedUser && email) {
-            resolvedUser = await userRepository.findByEmail(email);
-          }
-        }
-      }
-    } catch (decErr) {
-      console.warn('Password reset token local fallback decode error:', decErr);
+      resolvedUser = await userRepository.findById(resetRecord.userId);
+      isLocalToken = true;
     }
 
     // 2. If fallbacks did not resolve, try Supabase getUser
@@ -487,16 +491,16 @@ export class AuthService {
         const { data: { user }, error } = await supabase.auth.getUser(token);
 
         if (error || !user) {
-          throw new Error('Invalid or expired reset session token.');
+          throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
         }
         resolvedUser = user;
       } catch (err: any) {
-        throw new Error('Invalid or expired reset session token.');
+        throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
       }
     }
 
     if (!resolvedUser) {
-      throw new Error('Invalid or expired reset session token.');
+      throw new Error('Link reset password sudah digunakan atau telah kedaluwarsa. Silakan lakukan permintaan reset password baru.');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -506,6 +510,22 @@ export class AuthService {
       password: hashedPassword,
       isVerified: true
     });
+
+    // Sync back to Supabase auth provider if available
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(resolvedUser.id, { password: password });
+      if (error) {
+        console.warn('[completePasswordReset] Supabase admin update warning:', error.message);
+      }
+    } catch (sysRoleErr) {
+      console.warn('[completePasswordReset] Supabase service key update omitted, continuing locally:', sysRoleErr);
+    }
+
+    // Mark local token as used/deleted
+    if (isLocalToken && resetRecord) {
+      await authTokenRepository.removePasswordResetToken(token);
+    }
 
     return { success: true, userId: updatedUser.id };
   }

@@ -18,6 +18,7 @@ router.post('/resend-verification', (req, res) => authController.resendVerificat
 router.post('/update-role', (req, res) => authController.updateRole(req, res));
 router.post('/become-host', requireAuth as any, (req, res) => authController.becomeHost(req, res));
 router.post('/reset-password/request', (req, res) => authController.requestReset(req, res));
+router.post('/reset-password/validate', (req, res) => authController.validateResetToken(req, res));
 router.post('/reset-password/complete', (req, res) => authController.completeReset(req, res));
 
 // Secure Account Management routes

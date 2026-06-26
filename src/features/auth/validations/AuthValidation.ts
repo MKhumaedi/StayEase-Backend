@@ -22,7 +22,8 @@ export const VerifySchema = z.object({
 });
 
 export const ResetPasswordRequestSchema = z.object({
-  email: z.string().email({ message: 'Please enter a valid email address' })
+  email: z.string().email({ message: 'Please enter a valid email address' }),
+  redirectTo: z.string().optional()
 });
 
 export const ResetPasswordSubmitSchema = z.object({

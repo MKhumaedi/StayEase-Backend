@@ -245,10 +245,25 @@ export class AuthController {
   async requestReset(req: Request, res: Response): Promise<void> {
     try {
       const parsed = ResetPasswordRequestSchema.parse(req.body);
-      const result = await authService.requestPasswordReset(parsed.email);
+      const result = await authService.requestPasswordReset(parsed.email, parsed.redirectTo);
       res.status(200).json(result);
     } catch (err: any) {
       console.error('[AuthController/requestReset] Error:', err);
+      res.status(400).json({ error: err.message || err });
+    }
+  }
+
+  async validateResetToken(req: Request, res: Response): Promise<void> {
+    try {
+      const { token } = req.body;
+      if (!token) {
+        res.status(400).json({ error: 'Token is required' });
+        return;
+      }
+      const result = await authService.validatePasswordResetToken(token);
+      res.status(200).json(result);
+    } catch (err: any) {
+      console.error('[AuthController/validateResetToken] Error:', err);
       res.status(400).json({ error: err.message || err });
     }
   }
@@ -647,41 +662,21 @@ export class AuthController {
   }
 
   async callback(req: Request, res: Response): Promise<void> {
-    try {
-      const code = req.query.code as string;
-      if (!code) {
-        res.redirect('/login?error=No+authorization+code+found');
-        return;
-      }
-
-      // 1. Ambil admin/client Supabase di sisi backend
-      const { getSupabaseAdmin } = await import('../services/supabase');
-      const supabaseAdmin = getSupabaseAdmin();
-
-      // 2. Tukarkan authorization code dari Google menjadi session resmi di sisi backend
-      const { data, error: exchangeError } = await supabaseAdmin.auth.exchangeCodeForSession(code);
-      if (exchangeError || !data?.session?.user) {
-        throw exchangeError || new Error('No active session returned from exchange');
-      }
-
-      const session = data.session;
-
-      // 3. Daftarkan / perbarui profile user di database lokal (Prisma) Anda
-      const user = await this.verifyAndUpsertOAuthUser(session.user.id);
-      
-      // 4. Generate token JWT aplikasi Anda
-      const token = this.generateSessionToken(user);
-
-      // 5. Kembalikan user ke Frontend utama dan sematkan token login di URL parameter
-      // Frontend akan menangkap token ini dan melakukan login otomatis
-      const frontendUserParam = encodeURIComponent(JSON.stringify(transformUser(user)));
-      res.redirect(`/login?oauth_success=true&token=${token}&user=${frontendUserParam}`);
-
-    } catch (err: any) {
-      console.error('[AuthController/callback] OAuth Backend Error:', err);
-      const errMsg = encodeURIComponent(err.message || 'Authentication failed');
-      res.redirect(`/login?error=${errMsg}`);
+    const code = req.query.code as string;
+    if (!code) {
+      res.redirect('/login?error=No+authorization+code+found');
+      return;
     }
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.location.href = '/auth/callback-oauth' + window.location.search;
+          </script>
+          <p>Redirecting to secure callback handler...</p>
+        </body>
+      </html>
+    `);
   }
 
   async callbackExchange(req: Request, res: Response): Promise<void> {
