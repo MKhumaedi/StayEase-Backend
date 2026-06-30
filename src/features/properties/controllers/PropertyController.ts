@@ -353,7 +353,7 @@ export class PropertyController {
 
   async createProperty(req: Request, res: Response): Promise<void> {
     try {
-      const tenantId = (req as any).userId;
+      const tenantId = req.userId;
       if (!tenantId) return res.status(401).json({ error: 'Session required.' }) as any;
       const validatedData = PropertyInputSchema.parse(req.body);
       const created = await propertyService.createProperty(tenantId, validatedData);
@@ -365,7 +365,7 @@ export class PropertyController {
 
   async deleteProperty(req: Request, res: Response): Promise<void> {
     try {
-      const tenantId = (req as any).userId;
+      const tenantId = req.userId;
       const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
       if (!tenantId) return res.status(401).json({ error: 'Unauthorized' }) as any;
       if (!existing) return res.status(404).json({ error: 'Not found' }) as any;
@@ -379,8 +379,8 @@ export class PropertyController {
 
   async updateProperty(req: Request, res: Response): Promise<void> {
     try {
-      const tenantId = (req as any).userId;
-      const role = (req as any).userRole;
+      const tenantId = req.userId;
+      const role = req.userRole;
       const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
       if (!tenantId) return res.status(401).json({ error: 'Unauthorized' }) as any;
       if (!existing) return res.status(404).json({ error: 'Not found' }) as any;

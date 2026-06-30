@@ -9,7 +9,7 @@ export function DuplicateSubmissionGuard(req: Request, res: Response, next: Next
   }
 
   // Retrieve client identifier (User ID or IP)
-  const clientId = (req as any).userId || req.ip || 'unknown-client';
+  const clientId = req.userId || req.ip || 'unknown-client';
   const path = req.originalUrl || req.path;
 
   const isDup = duplicateRequestService.isDuplicate(

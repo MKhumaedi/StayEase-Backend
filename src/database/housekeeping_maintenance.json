@@ -1,0 +1,480 @@
+{
+  "housekeeping": [
+    {
+      "id": "ac3a7278-9a36-42ba-aba2-1ae55152f8df",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Verdant Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "520a8946-2dbb-4622-81a2-d1044eb279cd",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Verdant Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "28735eef-4a22-41bd-a053-540bfe80decb",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Verdant Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "d59e4ec0-4934-4814-90ae-4ff93485b93d",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Grand Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "d4fa2c2e-3f07-4d19-baba-06817fac8034",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Grand Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "b015daa3-cdd2-431e-82ab-a2dbbd276899",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Grand Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "e0a62b24-df57-4b3a-9b6b-2b52b36b99f4",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Stately Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "8e83f2bd-9a0e-463c-bfa0-8a81d4ae1f60",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Stately Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "7fd76f09-1c65-4fd0-9291-5e7cbef511a2",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Stately Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "fec41f71-9213-4de9-8c59-ccbca98971ea",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Onyx Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "262b3488-749f-48f0-9048-3e3633e3d6e5",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Onyx Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "b11e6d60-fd17-49e0-9e12-7f3bbc6b23f2",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Onyx Estate",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "73b2339c-1194-41d2-83c3-4d17f8f920a7",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Montecito Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "fb3129a1-e4a7-45f8-9ce1-94b5e4d13c80",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Montecito Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "9056c1bb-3f06-494e-a222-502f60d34971",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Montecito Sanctuary",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "f009cb55-c111-4ad0-b3c6-b723142f4852",
+      "roomName": "Besar",
+      "propertyName": "Hotel Indonesia",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "1edcb4c6-ae68-4032-837a-6b34afc9d48d",
+      "roomName": "Skyline Deluxe Room 101",
+      "propertyName": "Regal Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "1caa53bc-8452-4fe8-9eca-d904843d31fe",
+      "roomName": "Elite Haven Lounge Room 102",
+      "propertyName": "Regal Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "37f5cf5e-bf6e-440d-ba28-8f641fa4d9c1",
+      "roomName": "Scenic Penthouse Suite Room 103",
+      "propertyName": "Regal Manor",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
+    }
+  ],
+  "maintenance": []
+}

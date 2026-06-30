@@ -281,7 +281,7 @@ export class AuthController {
 
   async getMe(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -300,7 +300,7 @@ export class AuthController {
 
   async updateProfile(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -368,7 +368,7 @@ export class AuthController {
 
   async uploadAvatar(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -428,7 +428,7 @@ export class AuthController {
 
   async updateAvatarViaUrl(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -495,7 +495,7 @@ export class AuthController {
 
   async updateSettings(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -511,7 +511,7 @@ export class AuthController {
 
   async changePassword(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
@@ -579,7 +579,7 @@ export class AuthController {
 
   async becomeHost(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const userId = req.userId;
       if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;

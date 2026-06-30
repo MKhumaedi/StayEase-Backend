@@ -27,6 +27,13 @@ import { favoriteController } from './features/properties/controllers/FavoriteCo
 import { bookingController } from './features/bookings/controllers/BookingController';
 import { requireAuth } from './middlewares/AuthMiddleware';
 import { prisma } from './database/prisma';
+import {
+  getHousekeepingTasks,
+  updateHousekeepingTask,
+  getMaintenanceRequests,
+  createMaintenanceRequest,
+  updateMaintenanceStatus
+} from './database/housekeeping_maintenance';
 import uploadRouter from './features/uploads/routes/UploadRoutes';
 import tenantPaymentsRouter from './features/tenant-payments/routes/TenantPaymentsRoutes';
 import { IdempotencyMiddleware, DuplicateSubmissionGuard, RequestGuard } from './protection';
@@ -359,6 +366,60 @@ async function startServer() {
   app.get('/api/bookings/:id', requireAuth as any, (req, res) => bookingController.getBooking(req, res));
   app.get('/api/bookings', requireAuth as any, (req, res) => bookingController.listBookings(req, res));
   app.get('/api/reports', requireAuth as any, (req, res) => bookingController.getReports(req, res));
+
+  // Housekeeping APIs
+  app.get('/api/housekeeping', requireAuth as any, async (req, res) => {
+    try {
+      const tenantId = req.userRole === 'TENANT' ? req.userId : undefined;
+      const tasks = await getHousekeepingTasks(tenantId);
+      res.json(tasks);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+
+  app.put('/api/housekeeping/:roomId', requireAuth as any, async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { status, assignedTo, checklist } = req.body;
+      const task = await updateHousekeepingTask(roomId, { status, assignedTo, checklist });
+      res.json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+
+  // Maintenance APIs
+  app.get('/api/maintenance', requireAuth as any, async (req, res) => {
+    try {
+      const tenantId = req.userRole === 'TENANT' ? req.userId : undefined;
+      const requests = await getMaintenanceRequests(tenantId);
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+
+  app.post('/api/maintenance', requireAuth as any, async (req, res) => {
+    try {
+      const { title, propertyName, roomNameName, priority, status } = req.body;
+      const request = await createMaintenanceRequest({ title, propertyName, roomNameName, priority, status });
+      res.json(request);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+
+  app.put('/api/maintenance/:id/status', requireAuth as any, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const request = await updateMaintenanceStatus(id, status);
+      res.json(request);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
 
   // Serve production client build statically if present
   if (process.env.NODE_ENV === 'production') {

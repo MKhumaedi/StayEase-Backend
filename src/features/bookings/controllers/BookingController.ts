@@ -6,6 +6,8 @@ import { AuthenticatedRequest } from '../../../middlewares/AuthMiddleware';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
 import { AuditTrailService } from '../../payment-proof/services/AuditTrailService';
 import { midtransService } from '../../payments/services/MidtransService';
+import { prisma } from '../../../database/prisma';
+import { updateHousekeepingTask } from '../../../database/housekeeping_maintenance';
 
 export class BookingController {
   async createBooking(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -242,6 +244,14 @@ export class BookingController {
 
       const updated = await bookingRepository.checkIn(id, tenantId);
 
+      // Automatically update Room status to Occupied when checked in
+      if (booking.roomId) {
+        await prisma.room.update({
+          where: { id: booking.roomId },
+          data: { status: 'Occupied' }
+        });
+      }
+
       // Create log
       AuditTrailService.log(tenantId, id, 'CHECK_IN');
 
@@ -285,7 +295,28 @@ export class BookingController {
         return;
       }
 
+      // Check-Out is only allowed if the booking status is CHECKED_IN
+      if (booking.status !== 'CHECKED_IN') {
+        res.status(400).json({ error: 'Checkout is only allowed for Checked-In bookings' });
+        return;
+      }
+
       const updated = await bookingRepository.checkOut(id, tenantId);
+
+      // Automatically flag Room as DIRTY (UNAVAILABLE status) and trigger Housekeeping Task with a fresh checklist
+      if (booking.roomId) {
+        try {
+          const defaultChecklist = [
+            { text: 'Replace linens & beddings', done: false },
+            { text: 'Sanitize bathroom and surfaces', done: false },
+            { text: 'Restock refreshments & amenities', done: false },
+            { text: 'Inspect and dust fixtures', done: false }
+          ];
+          await updateHousekeepingTask(booking.roomId, { status: 'DIRTY', checklist: defaultChecklist });
+        } catch (hkError) {
+          console.error('[BookingController] Failed to flag housekeeping as DIRTY:', hkError);
+        }
+      }
 
       // Create log
       AuditTrailService.log(tenantId, id, 'CHECK_OUT');

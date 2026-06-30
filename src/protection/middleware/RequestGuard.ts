@@ -4,7 +4,7 @@ import { PROTECTION_CONSTANTS } from '../constants/protection.constants';
 
 export function RequestGuard(resourceName: string, getLockKey?: (req: Request) => string) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const userId = (req as any).userId || req.ip || 'anonymous';
+    const userId = req.userId || req.ip || 'anonymous';
     const specificKey = getLockKey ? getLockKey(req) : '';
     const lockKey = `lock:${resourceName}:${userId}:${specificKey}`;
 

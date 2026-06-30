@@ -172,7 +172,7 @@ export class BookingRepository {
     return prisma.booking.update({
       where: { id },
       data: {
-        status: 'CHECKED_OUT',
+        status: 'COMPLETED',
         checkedOutAt: new Date(),
         checkedOutBy: userId
       },
