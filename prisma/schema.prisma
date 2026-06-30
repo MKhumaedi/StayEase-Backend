@@ -280,6 +280,8 @@ model Booking {
   checkedInBy    String?
   checkedOutAt   DateTime?
   checkedOutBy   String?
+  checkoutRequested       Boolean   @default(false)
+  actualCheckoutRequestAt DateTime?
   createdAt      DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   deletedAt    DateTime?

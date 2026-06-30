@@ -188,20 +188,32 @@ export class BookingService {
     // Fetch properties with rooms and bookings
     const propertiesWithData = await prisma.property.findMany({
       where: { tenantId: landlordId, deletedAt: null },
-      include: {
+      select: {
+        id: true,
+        name: true,
         rooms: {
-          where: { deletedAt: null }
+          where: { deletedAt: null },
+          select: {
+            id: true
+          }
         },
         bookings: {
-          where: {
-            deletedAt: null
-          },
-          include: {
-            room: true
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            totalAmount: true,
+            nights: true,
+            startDate: true,
+            endDate: true
           }
         },
         reviews: {
-          where: { deletedAt: null }
+          where: { deletedAt: null },
+          select: {
+            id: true
+          }
         }
       }
     });
@@ -348,6 +360,22 @@ export class BookingService {
         lateCheckOuts: lateCheckOutsCount
       }
     };
+  }
+
+  async requestCheckout(id: string) {
+    return bookingRepository.requestCheckOut(id);
+  }
+
+  async requestCheckOut(id: string) {
+    return this.requestCheckout(id);
+  }
+
+  async confirmCheckout(id: string, userId: string) {
+    return bookingRepository.confirmCheckOut(id, userId);
+  }
+
+  async confirmCheckOut(id: string, userId: string) {
+    return this.confirmCheckout(id, userId);
   }
 }
 

@@ -1,5 +1,6 @@
 import { prisma } from '../../../database/prisma';
 import { BookingStatus } from '@prisma/client';
+import { BookingSearchInput } from '../validations/BookingValidation';
 
 export class BookingRepository {
   async findById(id: string) {
@@ -111,7 +112,7 @@ export class BookingRepository {
     return result.count;
   }
 
-  private buildWhere(filters: any) {
+  private buildWhere(filters: BookingSearchInput) {
     const where: any = { deletedAt: null };
     if (filters.status) {
       if (filters.status === 'EXPIRED') {
@@ -139,20 +140,75 @@ export class BookingRepository {
         { bookingCode: { contains: filters.search, mode: 'insensitive' } }
       ];
     }
+    if (filters.checkoutRequested !== undefined) {
+      where.checkoutRequested = filters.checkoutRequested === 'true' || filters.checkoutRequested === true;
+    }
+    if (filters.checkedOutAtNull !== undefined) {
+      if (filters.checkedOutAtNull === 'true' || filters.checkedOutAtNull === true) {
+        where.checkedOutAt = null;
+      }
+    }
     return where;
   }
 
-  async search(filters: { status?: BookingStatus | string; search?: string; page?: number; limit?: number; guestId?: string; tenantId?: string; propertyId?: string; startDate?: string; endDate?: string; }) {
+  async search(filters: BookingSearchInput) {
     const { page = 1, limit = 10 } = filters;
     const where = this.buildWhere(filters);
+
+    // TEMPORARY LOGGING:
+    console.log('[BOOKING BACKEND AUDIT] Received Filters:', JSON.stringify(filters, null, 2));
+    console.log('[BOOKING BACKEND AUDIT] Constructed Prisma Where:', JSON.stringify(where, null, 2));
+
     const [data, total] = await Promise.all([
       prisma.booking.findMany({
         where, skip: (page - 1) * limit, take: limit,
-        include: { property: true, room: true, paymentProof: true, review: true },
+        include: {
+          property: {
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              location: true,
+              city: true,
+              province: true,
+              imageUrls: true,
+              tenantId: true
+            }
+          },
+          room: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              capacity: true,
+              basePrice: true,
+              status: true
+            }
+          },
+          paymentProof: {
+            select: {
+              id: true,
+              proofUrl: true
+            }
+          },
+          review: {
+            select: {
+              id: true,
+              rating: true,
+              comment: true,
+              replyComment: true,
+              replyDate: true
+            }
+          }
+        },
         orderBy: { createdAt: 'desc' }
       }),
       prisma.booking.count({ where })
     ]);
+
+    // TEMPORARY LOGGING:
+    console.log(`[BOOKING BACKEND AUDIT] Found ${data.length} bookings, total ${total}`);
+
     return { data, total };
   }
 
@@ -168,16 +224,92 @@ export class BookingRepository {
     });
   }
 
-  async checkOut(id: string, userId: string) {
+  async requestCheckOut(id: string) {
     return prisma.booking.update({
       where: { id },
       data: {
-        status: 'COMPLETED',
-        checkedOutAt: new Date(),
-        checkedOutBy: userId
+        status: 'CHECKED_IN',
+        checkoutRequested: true,
+        actualCheckoutRequestAt: new Date()
       },
       include: { property: true, room: true }
     });
+  }
+
+  async requestCheckout(id: string) {
+    return this.requestCheckOut(id);
+  }
+
+  async confirmCheckOut(id: string, userId: string) {
+    return prisma.$transaction(async (tx) => {
+      // 1. Validasi booking masih CHECKED_IN
+      const booking = await tx.booking.findFirst({
+        where: { id, deletedAt: null },
+        include: { property: true, room: true }
+      });
+      if (!booking) {
+        throw new Error('Booking tidak ditemukan.');
+      }
+      if (booking.status !== 'CHECKED_IN') {
+        throw new Error('Validasi gagal: Booking status bukan CHECKED_IN.');
+      }
+
+      // 3. Update booking
+      const updatedBooking = await tx.booking.update({
+        where: { id },
+        data: {
+          status: 'CHECKED_OUT',
+          checkoutRequested: false,
+          checkedOutAt: new Date(),
+          checkedOutBy: userId
+        },
+        include: {
+          property: {
+            include: {
+              tenant: {
+                select: { id: true, name: true, email: true }
+              }
+            }
+          },
+          room: true,
+          paymentProof: true,
+          review: true
+        }
+      });
+
+      // 4. Update room
+      if (booking.roomId) {
+        await tx.room.update({
+          where: { id: booking.roomId },
+          data: { status: 'Available' }
+        });
+      }
+
+      // 5. Update room availability
+      if (booking.roomId) {
+        const cur = new Date(booking.startDate + 'T00:00:00');
+        const stop = new Date(booking.endDate + 'T00:00:00');
+        while (cur < stop) {
+          const dStr = cur.toISOString().split('T')[0];
+          await tx.roomAvailability.upsert({
+            where: { roomId_date: { roomId: booking.roomId, date: dStr } },
+            update: { isBlocked: false },
+            create: { roomId: booking.roomId, date: dStr, isBlocked: false }
+          });
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+
+      return updatedBooking;
+    });
+  }
+
+  async confirmCheckout(id: string, userId: string) {
+    return this.confirmCheckOut(id, userId);
+  }
+
+  async checkOut(id: string, userId: string) {
+    return this.confirmCheckOut(id, userId);
   }
 }
 

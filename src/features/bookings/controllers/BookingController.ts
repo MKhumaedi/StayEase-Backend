@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { bookingService } from '../services/BookingService';
 import { bookingRepository } from '../repositories/BookingRepository';
-import { CreateBookingSchema, UploadPaymentProofSchema, BookingSearchSchema } from '../validations/BookingValidation';
+import { CreateBookingSchema, UploadPaymentProofSchema, BookingSearchSchema, BookingSearchInput } from '../validations/BookingValidation';
 import { AuthenticatedRequest } from '../../../middlewares/AuthMiddleware';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
 import { AuditTrailService } from '../../payment-proof/services/AuditTrailService';
@@ -77,28 +77,44 @@ export class BookingController {
     }));
   }
 
-  private async fetchSearchedBookings(req: AuthenticatedRequest, validated: any) {
+  private async fetchSearchedBookings(req: AuthenticatedRequest, validated: BookingSearchInput) {
     return bookingRepository.search({
-      status: validated.status as any, search: validated.search,
-      page: validated.page, limit: validated.limit,
-      guestId: req.userRole === 'USER' ? req.userId : (validated.guestId || undefined),
-      tenantId: req.userRole === 'TENANT' ? req.userId : undefined,
+      status: validated.status,
+      search: validated.search,
+      page: validated.page,
+      limit: validated.limit,
+      guestId: (req.userRole === 'USER' || req.userRole === 'TRAVELER') ? req.userId : (validated.guestId || undefined),
+      tenantId: req.userRole === 'TENANT' ? req.userId : (validated.tenantId || undefined),
       propertyId: validated.propertyId,
       startDate: validated.startDate,
-      endDate: validated.endDate
+      endDate: validated.endDate,
+      checkoutRequested: validated.checkoutRequested,
+      checkedOutAtNull: validated.checkedOutAtNull
     });
   }
 
   async listBookings(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const startTime = Date.now();
     try {
-      const validated = BookingSearchSchema.parse(req.query);
+      const validated: BookingSearchInput = BookingSearchSchema.parse(req.query);
       await bookingRepository.expireOldPendingBookings(30);
       let results = await this.fetchSearchedBookings(req, validated);
-      await this.syncBookingList(results.data);
-      results = await this.fetchSearchedBookings(req, validated);
+      
+      const hasPendingPayment = results.data.some((b: any) => b.status === 'WAITING_PAYMENT');
+      if (hasPendingPayment) {
+        await this.syncBookingList(results.data);
+        results = await this.fetchSearchedBookings(req, validated);
+      }
+      
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
+
+      if (process.env.NODE_ENV !== 'production') {
+        const duration = Date.now() - startTime;
+        console.log(`[PERF] listBookings took ${duration}ms (hasPendingPayment: ${hasPendingPayment})`);
+      }
+
       res.json(results);
     } catch (err: any) {
       res.status(400).json({ error: err.message || err });
@@ -174,6 +190,12 @@ export class BookingController {
       const booking = await bookingRepository.findById(id);
       if (!booking) {
         res.status(404).json({ error: 'Booking not found' });
+        return;
+      }
+
+      // Guard: "Tidak mengubah booking yang sudah CHECKED_OUT."
+      if (booking.status === 'CHECKED_OUT' || booking.status === 'COMPLETED') {
+        res.status(400).json({ error: 'Tidak boleh mengubah booking yang sudah CHECKED_OUT.' });
         return;
       }
 
@@ -269,18 +291,13 @@ export class BookingController {
     }
   }
 
-  async checkOut(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async requestCheckout(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const tenantId = req.userId;
+      const userId = req.userId;
 
-      if (!tenantId) {
+      if (!userId) {
         res.status(401).json({ error: 'Session required' });
-        return;
-      }
-
-      if (req.userRole !== 'TENANT') {
-        res.status(403).json({ error: 'Only Host/Tenant can perform this action' });
         return;
       }
 
@@ -290,20 +307,63 @@ export class BookingController {
         return;
       }
 
-      if (booking.property.tenantId !== tenantId) {
-        res.status(403).json({ error: 'Access denied' });
+      // Guard: "Tidak mengubah booking yang sudah CHECKED_OUT."
+      if (booking.status === 'CHECKED_OUT' || booking.status === 'COMPLETED') {
+        res.status(400).json({ error: 'Tidak boleh mengubah booking yang sudah CHECKED_OUT.' });
         return;
       }
 
-      // Check-Out is only allowed if the booking status is CHECKED_IN
+      // Validation: "Tidak boleh Check-Out jika status belum CHECKED_IN."
       if (booking.status !== 'CHECKED_IN') {
-        res.status(400).json({ error: 'Checkout is only allowed for Checked-In bookings' });
+        res.status(400).json({ error: 'Tidak boleh Check-Out jika status belum CHECKED_IN.' });
         return;
       }
 
-      const updated = await bookingRepository.checkOut(id, tenantId);
+      // Update via Service
+      const updated = await bookingService.requestCheckout(id);
 
-      // Automatically flag Room as DIRTY (UNAVAILABLE status) and trigger Housekeeping Task with a fresh checklist
+      // Create notification for host/tenant
+      await NotificationEngine.createNotification({
+        userId: booking.property.tenantId,
+        title: 'Guest Check-Out Request',
+        message: `Guest ${booking.guestName} has requested check-out for booking ${booking.bookingCode}.`,
+        type: 'BOOKING'
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || err });
+    }
+  }
+
+  async confirmCheckout(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = req.userId;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Session required' });
+        return;
+      }
+
+      const booking = await bookingRepository.findById(id);
+      if (!booking) {
+        res.status(404).json({ error: 'Booking not found' });
+        return;
+      }
+
+      const isHost = booking.property.tenantId === userId;
+      const isAdmin = req.userRole === 'ADMIN';
+
+      if (!isHost && !isAdmin) {
+        res.status(403).json({ error: 'Only Host/Tenant or Admin can perform this action' });
+        return;
+      }
+
+      // Finalize Check-Out using service transaction
+      const updated = await bookingService.confirmCheckout(id, userId);
+
+      // Trigger Housekeeping Task with a fresh checklist
       if (booking.roomId) {
         try {
           const defaultChecklist = [
@@ -319,7 +379,7 @@ export class BookingController {
       }
 
       // Create log
-      AuditTrailService.log(tenantId, id, 'CHECK_OUT');
+      AuditTrailService.log(userId, id, 'CHECK_OUT');
 
       // Create notification for traveler
       await NotificationEngine.createNotification({
@@ -330,6 +390,50 @@ export class BookingController {
       });
 
       res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || err });
+    }
+  }
+
+  async checkOut(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = req.userId;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Session required' });
+        return;
+      }
+
+      const booking = await bookingRepository.findById(id);
+      if (!booking) {
+        res.status(404).json({ error: 'Booking not found' });
+        return;
+      }
+
+      // Guard: "Tidak mengubah booking yang sudah CHECKED_OUT."
+      if (booking.status === 'CHECKED_OUT' || booking.status === 'COMPLETED') {
+        res.status(400).json({ error: 'Tidak boleh mengubah booking yang sudah CHECKED_OUT.' });
+        return;
+      }
+
+      const isGuest = booking.guestId === userId;
+      const isHost = booking.property.tenantId === userId;
+      const isAdmin = req.userRole === 'ADMIN';
+
+      if (!isGuest && !isHost && !isAdmin) {
+        res.status(403).json({ error: 'Access denied' });
+        return;
+      }
+
+      // If they are a Tenant or Admin and the booking is CHECKED_IN, they can confirm checkout.
+      const isConfirming = (isHost || isAdmin) && booking.status === 'CHECKED_IN';
+
+      if (isConfirming) {
+        return this.confirmCheckout(req, res);
+      } else {
+        return this.requestCheckout(req, res);
+      }
     } catch (err: any) {
       res.status(400).json({ error: err.message || err });
     }

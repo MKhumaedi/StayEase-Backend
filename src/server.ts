@@ -369,9 +369,13 @@ async function startServer() {
 
   // Housekeeping APIs
   app.get('/api/housekeeping', requireAuth as any, async (req, res) => {
+    const startTime = Date.now();
     try {
       const tenantId = req.userRole === 'TENANT' ? req.userId : undefined;
       const tasks = await getHousekeepingTasks(tenantId);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF] GET /api/housekeeping took ${Date.now() - startTime}ms`);
+      }
       res.json(tasks);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Internal server error' });
@@ -379,10 +383,14 @@ async function startServer() {
   });
 
   app.put('/api/housekeeping/:roomId', requireAuth as any, async (req, res) => {
+    const startTime = Date.now();
     try {
       const { roomId } = req.params;
       const { status, assignedTo, checklist } = req.body;
       const task = await updateHousekeepingTask(roomId, { status, assignedTo, checklist });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF] PUT /api/housekeeping/${roomId} took ${Date.now() - startTime}ms`);
+      }
       res.json(task);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Internal server error' });
@@ -391,9 +399,13 @@ async function startServer() {
 
   // Maintenance APIs
   app.get('/api/maintenance', requireAuth as any, async (req, res) => {
+    const startTime = Date.now();
     try {
       const tenantId = req.userRole === 'TENANT' ? req.userId : undefined;
       const requests = await getMaintenanceRequests(tenantId);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF] GET /api/maintenance took ${Date.now() - startTime}ms`);
+      }
       res.json(requests);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Internal server error' });
@@ -401,9 +413,13 @@ async function startServer() {
   });
 
   app.post('/api/maintenance', requireAuth as any, async (req, res) => {
+    const startTime = Date.now();
     try {
       const { title, propertyName, roomNameName, priority, status } = req.body;
       const request = await createMaintenanceRequest({ title, propertyName, roomNameName, priority, status });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF] POST /api/maintenance took ${Date.now() - startTime}ms`);
+      }
       res.json(request);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Internal server error' });
@@ -411,10 +427,14 @@ async function startServer() {
   });
 
   app.put('/api/maintenance/:id/status', requireAuth as any, async (req, res) => {
+    const startTime = Date.now();
     try {
       const { id } = req.params;
       const { status } = req.body;
       const request = await updateMaintenanceStatus(id, status);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF] PUT /api/maintenance/${id}/status took ${Date.now() - startTime}ms`);
+      }
       res.json(request);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Internal server error' });

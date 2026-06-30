@@ -61,8 +61,14 @@ export async function getHousekeepingTasks(tenantId?: string): Promise<Housekeep
       deletedAt: null,
       property: tenantId ? { tenantId } : undefined
     },
-    include: {
-      property: true
+    select: {
+      id: true,
+      name: true,
+      property: {
+        select: {
+          name: true
+        }
+      }
     }
   });
 
