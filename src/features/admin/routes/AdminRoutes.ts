@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../../../database/prisma';
 import { requireAuth as authMiddleware } from '../../../middlewares/AuthMiddleware';
 import { AuditService, SettingsService } from '../services/AdminServices';
+import { reviewService } from '../../reviews/services/ReviewService';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
@@ -832,21 +833,36 @@ router.get('/payments', authMiddleware, adminMiddleware, async (req: any, res) =
 // 7. GET /api/admin/reviews - Get reviews
 router.get('/reviews', authMiddleware, adminMiddleware, async (req: any, res) => {
   try {
-    const { search } = req.query;
+    const { search, rating, status } = req.query;
 
     const whereClause: any = {}; // Include soft-deleted reviews for recovery
 
+    if (rating) {
+      whereClause.rating = Number(rating);
+    }
+
+    if (status === 'HIDDEN') {
+      whereClause.deletedAt = { not: null };
+    } else if (status === 'PUBLIC') {
+      whereClause.deletedAt = null;
+    }
+
     if (search) {
+      const searchStr = String(search);
       whereClause.OR = [
-        { comment: { contains: String(search), mode: 'insensitive' } },
-        { guestName: { contains: String(search), mode: 'insensitive' } }
+        { comment: { contains: searchStr, mode: 'insensitive' } },
+        { guestName: { contains: searchStr, mode: 'insensitive' } },
+        { property: { name: { contains: searchStr, mode: 'insensitive' } } },
+        { booking: { bookingCode: { contains: searchStr, mode: 'insensitive' } } }
       ];
     }
 
     const reviews = await prisma.review.findMany({
       where: whereClause,
       include: {
-        property: { select: { name: true } }
+        property: { select: { id: true, name: true } },
+        booking: { select: { id: true, bookingCode: true } },
+        guest: { select: { id: true, name: true, email: true, avatarUrl: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -861,7 +877,7 @@ router.get('/reviews', authMiddleware, adminMiddleware, async (req: any, res) =>
 router.put('/reviews/:id/status', authMiddleware, adminMiddleware, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { isHidden } = req.body;
+    const { isHidden, reason } = req.body;
     const admin = await getAdminUser(req);
 
     const review = await prisma.review.update({
@@ -871,12 +887,95 @@ router.put('/reviews/:id/status', authMiddleware, adminMiddleware, async (req: a
       }
     });
 
+    // Recalculate metrics
+    await reviewService.updatePropertyMetrics(review.propertyId);
+
     AuditService.log(
       admin.id,
       admin.name,
       isHidden ? 'HIDE_REVIEW' : 'RESTORE_REVIEW',
       'REVIEW',
-      `${isHidden ? 'Hid' : 'Restored'} review by ${review.guestName} on property ID ${review.propertyId}`
+      `${isHidden ? 'Hid' : 'Restored'} review by ${review.guestName} on property ID ${review.propertyId}${reason ? ' Reason: ' + reason : ''}`
+    );
+
+    res.status(200).json({ success: true, review });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || err });
+  }
+});
+
+// PUT /api/admin/reviews/:id - Edit review comment and rating
+router.put('/reviews/:id', authMiddleware, adminMiddleware, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { rating, comment, reason } = req.body;
+    const admin = await getAdminUser(req);
+
+    const reviewBefore = await prisma.review.findUnique({ where: { id } });
+    if (!reviewBefore) {
+      res.status(404).json({ error: 'Review not found.' });
+      return;
+    }
+
+    const updateData: any = {};
+    if (rating !== undefined) updateData.rating = Number(rating);
+    if (comment !== undefined) updateData.comment = String(comment).trim();
+
+    const review = await prisma.review.update({
+      where: { id },
+      data: updateData,
+      include: {
+        property: { select: { id: true, name: true } },
+        booking: { select: { id: true, bookingCode: true } },
+        guest: { select: { id: true, name: true, email: true, avatarUrl: true } }
+      }
+    });
+
+    // Recalculate metrics
+    await reviewService.updatePropertyMetrics(review.propertyId);
+
+    AuditService.log(
+      admin.id,
+      admin.name,
+      'EDIT_REVIEW',
+      'REVIEW',
+      `Edited review by ${review.guestName} on property ID ${review.propertyId} (Rating: ${reviewBefore.rating} -> ${review.rating})${reason ? ' Reason: ' + reason : ''}`
+    );
+
+    res.status(200).json({ success: true, review });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || err });
+  }
+});
+
+// DELETE /api/admin/reviews/:id - Delete review (soft delete/archive)
+router.delete('/reviews/:id', authMiddleware, adminMiddleware, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body || req.query;
+    const admin = await getAdminUser(req);
+
+    const review = await prisma.review.update({
+      where: { id },
+      data: {
+        deletedAt: new Date()
+      },
+      include: {
+        property: { select: { id: true, name: true } },
+        booking: { select: { id: true, bookingCode: true } },
+        guest: { select: { id: true, name: true, email: true, avatarUrl: true } }
+      }
+    });
+
+    // Recalculate metrics
+    await reviewService.updatePropertyMetrics(review.propertyId);
+
+    AuditService.log(
+      admin.id,
+      admin.name,
+      'DELETE_REVIEW',
+      'REVIEW',
+      `Deleted/Archived review by ${review.guestName} on property ID ${review.propertyId}${reason ? ' Reason: ' + reason : ''}`
     );
 
     res.status(200).json({ success: true, review });

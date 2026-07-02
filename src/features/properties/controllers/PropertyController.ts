@@ -309,10 +309,15 @@ export class PropertyController {
         _count: { id: true }
       });
 
+      const peakRates = await prisma.peakSeasonRate.findMany({
+        where: { propertyId: property.id, deletedAt: null }
+      });
+
       const enrichedProperty = {
         ...property,
         rating: aggregate._avg.rating ? Math.round(Number(aggregate._avg.rating) * 100) / 100 : 0,
-        reviewCount: aggregate._count.id || 0
+        reviewCount: aggregate._count.id || 0,
+        peakSeasonRates: peakRates
       };
 
       res.json({ property: enrichedProperty, rooms });

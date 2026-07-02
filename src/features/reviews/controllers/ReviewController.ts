@@ -95,42 +95,11 @@ export class ReviewController {
   }
 
   async updateReview(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { rating, comment } = req.body;
-      const userId = req.userId;
-
-      if (!userId) {
-        res.status(401).json({ error: 'Unauthorized session.' });
-        return;
-      }
-
-      const review = await reviewService.updateReview(userId, id, {
-        rating: Number(rating),
-        comment
-      });
-
-      res.json({ success: true, review });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message || err });
-    }
+    res.status(403).json({ error: 'Forbidden: Travelers are not allowed to edit reviews once submitted. Only administrators can moderate reviews.' });
   }
 
   async deleteReview(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.userId;
-
-      if (!userId) {
-        res.status(401).json({ error: 'Unauthorized session.' });
-        return;
-      }
-
-      await reviewService.deleteReview(userId, id);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message || err });
-    }
+    res.status(403).json({ error: 'Forbidden: Travelers are not allowed to delete reviews once submitted. Only administrators can moderate reviews.' });
   }
 
   async getPropertyReviews(req: AuthenticatedRequest, res: Response): Promise<void> {

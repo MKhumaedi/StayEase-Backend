@@ -27,6 +27,8 @@ import { favoriteController } from './features/properties/controllers/FavoriteCo
 import { bookingController } from './features/bookings/controllers/BookingController';
 import { requireAuth } from './middlewares/AuthMiddleware';
 import { prisma } from './database/prisma';
+import { AuditService } from './features/admin/services/AdminServices';
+import { propertyRepository } from './features/properties/repositories/PropertyRepository';
 import {
   getHousekeepingTasks,
   updateHousekeepingTask,
@@ -338,6 +340,352 @@ async function startServer() {
   app.post('/api/properties', requireAuth as any, IdempotencyMiddleware as any, DuplicateSubmissionGuard as any, RequestGuard('property_create', (req) => req.body.name || '') as any, (req, res) => propertyController.createProperty(req, res));
   app.put('/api/properties/:id', requireAuth as any, IdempotencyMiddleware as any, DuplicateSubmissionGuard as any, RequestGuard('property_update', (req) => req.params.id) as any, (req, res) => propertyController.updateProperty(req, res));
   app.delete('/api/properties/:id', requireAuth as any, IdempotencyMiddleware as any, DuplicateSubmissionGuard as any, RequestGuard('property_delete', (req) => req.params.id) as any, (req, res) => propertyController.deleteProperty(req, res));
+
+  // Local helper for date generation inside Peak Season routes
+  function getDatesBetweenLocal(startDateStr: string, endDateStr: string): string[] {
+    const start = new Date(startDateStr + 'T00:00:00');
+    const end = new Date(endDateStr + 'T00:00:00');
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+      return [startDateStr];
+    }
+    const dates: string[] = [];
+    const curr = new Date(start);
+    while (curr <= end) {
+      const yyyy = curr.getFullYear();
+      const mm = String(curr.getMonth() + 1).padStart(2, '0');
+      const dd = String(curr.getDate()).padStart(2, '0');
+      dates.push(`${yyyy}-${mm}-${dd}`);
+      curr.setDate(curr.getDate() + 1);
+    }
+    return dates;
+  }
+
+  // Peak Season APIs for Tenants/Hosts
+  app.get('/api/properties/:propertyId/peak-seasons', requireAuth as any, async (req: any, res) => {
+    try {
+      const tenantId = req.userId;
+      const { propertyId } = req.params;
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return res.status(404).json({ error: 'Property not found.' });
+      if (property.tenantId !== tenantId && req.userRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      const seasons = await prisma.peakSeasonRate.findMany({
+        where: { propertyId, deletedAt: null },
+        include: {
+          room: { select: { id: true, name: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      res.json({ success: true, seasons });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/properties/:propertyId/peak-seasons', requireAuth as any, async (req: any, res) => {
+    try {
+      const tenantId = req.userId;
+      const { propertyId } = req.params;
+      const { name, roomId, startDate, endDate, rateMultiplier, adjustmentType, adjustmentValue, isActive, applyMode, dates, isClosed } = req.body;
+
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return res.status(404).json({ error: 'Property not found.' });
+      if (property.tenantId !== tenantId && req.userRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      if (!name) return res.status(400).json({ error: 'Rule name is required.' });
+
+      // Identify all dates this rule is being applied to
+      let datesToCheck: string[] = [];
+      if (applyMode === 'RANGE') {
+        if (!startDate || !endDate) return res.status(400).json({ error: 'Start and end dates are required for range mode.' });
+        datesToCheck = getDatesBetweenLocal(startDate, endDate);
+      } else if (applyMode === 'MULTIPLE') {
+        if (!dates || !Array.isArray(dates) || dates.length === 0) {
+          return res.status(400).json({ error: 'At least one selected date is required.' });
+        }
+        datesToCheck = dates;
+      } else { // SINGLE
+        if (!startDate) return res.status(400).json({ error: 'Target date is required.' });
+        datesToCheck = [startDate];
+      }
+
+      // Check overlap for every single targeted date against active rules
+      const existing = await prisma.peakSeasonRate.findMany({
+        where: { propertyId, deletedAt: null, isActive: true }
+      });
+
+      for (const dateStr of datesToCheck) {
+        const match = existing.find(s => {
+          const inRange = dateStr >= s.startDate && dateStr <= s.endDate;
+          const sameRoom = s.roomId === roomId || s.roomId === null || roomId === null;
+          return inRange && sameRoom;
+        });
+        if (match) {
+          return res.status(400).json({ 
+            error: `Overlapping rule detected! Date ${dateStr} is already covered by the rule "${match.name}".` 
+          });
+        }
+      }
+
+      // Create PeakSeasonRate entries in database
+      const recordsToCreate = [];
+      const cleanRoomId = (roomId === '' || roomId === 'all' || roomId === 'null' || !roomId) ? null : roomId;
+
+      if (applyMode === 'MULTIPLE') {
+        for (const dateStr of datesToCheck) {
+          recordsToCreate.push({
+            name,
+            propertyId,
+            roomId: cleanRoomId,
+            startDate: dateStr,
+            endDate: dateStr,
+            rateMultiplier: Number(rateMultiplier),
+            adjustmentType: adjustmentType || 'PERCENTAGE_INCREASE',
+            adjustmentValue: Number(adjustmentValue),
+            isActive: isActive !== false
+          });
+        }
+      } else {
+        recordsToCreate.push({
+          name,
+          propertyId,
+          roomId: cleanRoomId,
+          startDate,
+          endDate,
+          rateMultiplier: Number(rateMultiplier),
+          adjustmentType: adjustmentType || 'PERCENTAGE_INCREASE',
+          adjustmentValue: Number(adjustmentValue),
+          isActive: isActive !== false
+        });
+      }
+
+      await prisma.peakSeasonRate.createMany({
+        data: recordsToCreate
+      });
+
+      // If Booking Closed is checked, block in RoomAvailability
+      if (isClosed) {
+        const roomsToBlock = cleanRoomId ? [{ id: cleanRoomId }] : await prisma.room.findMany({ where: { propertyId, deletedAt: null } });
+        for (const r of roomsToBlock) {
+          await propertyRepository.bulkUpdateAvailability(r.id, datesToCheck, true);
+        }
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: req.userId } });
+      AuditService.log(
+        req.userId,
+        user ? user.name : 'Host',
+        'CREATE_PEAK_SEASON',
+        'PEAK_SEASON',
+        `Created peak season rule "${name}" with adjustment ${adjustmentType === 'PERCENTAGE_INCREASE' ? '+' + adjustmentValue + '%' : 'Rp' + adjustmentValue} for ${datesToCheck.length} day(s).`
+      );
+
+      res.status(201).json({ success: true, message: 'Peak season rule saved successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/properties/:propertyId/peak-seasons/:oldName', requireAuth as any, async (req: any, res) => {
+    try {
+      const tenantId = req.userId;
+      const { propertyId, oldName } = req.params;
+      const { name, roomId, startDate, endDate, rateMultiplier, adjustmentType, adjustmentValue, isActive, applyMode, dates, isClosed } = req.body;
+
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return res.status(404).json({ error: 'Property not found.' });
+      if (property.tenantId !== tenantId && req.userRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      if (!name) return res.status(400).json({ error: 'Rule name is required.' });
+
+      // Temporary soft delete old rules under this oldName to avoid false self-overlap matches
+      await prisma.peakSeasonRate.updateMany({
+        where: { propertyId, name: oldName, deletedAt: null },
+        data: { deletedAt: new Date() }
+      });
+
+      // Gather dates for overlap check
+      let datesToCheck: string[] = [];
+      if (applyMode === 'RANGE') {
+        if (!startDate || !endDate) {
+          // Restore old rules
+          await prisma.peakSeasonRate.updateMany({
+            where: { propertyId, name: oldName, deletedAt: { not: null } },
+            data: { deletedAt: null }
+          });
+          return res.status(400).json({ error: 'Start and end dates are required for range mode.' });
+        }
+        datesToCheck = getDatesBetweenLocal(startDate, endDate);
+      } else if (applyMode === 'MULTIPLE') {
+        if (!dates || !Array.isArray(dates) || dates.length === 0) {
+          // Restore old rules
+          await prisma.peakSeasonRate.updateMany({
+            where: { propertyId, name: oldName, deletedAt: { not: null } },
+            data: { deletedAt: null }
+          });
+          return res.status(400).json({ error: 'At least one selected date is required.' });
+        }
+        datesToCheck = dates;
+      } else {
+        if (!startDate) {
+          // Restore old rules
+          await prisma.peakSeasonRate.updateMany({
+            where: { propertyId, name: oldName, deletedAt: { not: null } },
+            data: { deletedAt: null }
+          });
+          return res.status(400).json({ error: 'Target date is required.' });
+        }
+        datesToCheck = [startDate];
+      }
+
+      const existing = await prisma.peakSeasonRate.findMany({
+        where: { propertyId, deletedAt: null, isActive: true }
+      });
+
+      for (const dateStr of datesToCheck) {
+        const match = existing.find(s => {
+          const inRange = dateStr >= s.startDate && dateStr <= s.endDate;
+          const sameRoom = s.roomId === roomId || s.roomId === null || roomId === null;
+          return inRange && sameRoom;
+        });
+        if (match) {
+          // Overlap detected! Rollback deletion of old rules by restoring them
+          await prisma.peakSeasonRate.updateMany({
+            where: { propertyId, name: oldName, deletedAt: { not: null } },
+            data: { deletedAt: null }
+          });
+          return res.status(400).json({ 
+            error: `Overlapping rule detected! Date ${dateStr} is already covered by "${match.name}".` 
+          });
+        }
+      }
+
+      // Overlap passed! Old records soft deleted can be safely left deleted, and we create the new records
+      const recordsToCreate = [];
+      const cleanRoomId = (roomId === '' || roomId === 'all' || roomId === 'null' || !roomId) ? null : roomId;
+
+      if (applyMode === 'MULTIPLE') {
+        for (const dateStr of datesToCheck) {
+          recordsToCreate.push({
+            name,
+            propertyId,
+            roomId: cleanRoomId,
+            startDate: dateStr,
+            endDate: dateStr,
+            rateMultiplier: Number(rateMultiplier),
+            adjustmentType: adjustmentType || 'PERCENTAGE_INCREASE',
+            adjustmentValue: Number(adjustmentValue),
+            isActive: isActive !== false
+          });
+        }
+      } else {
+        recordsToCreate.push({
+          name,
+          propertyId,
+          roomId: cleanRoomId,
+          startDate,
+          endDate,
+          rateMultiplier: Number(rateMultiplier),
+          adjustmentType: adjustmentType || 'PERCENTAGE_INCREASE',
+          adjustmentValue: Number(adjustmentValue),
+          isActive: isActive !== false
+        });
+      }
+
+      await prisma.peakSeasonRate.createMany({
+        data: recordsToCreate
+      });
+
+      if (isClosed) {
+        const roomsToBlock = cleanRoomId ? [{ id: cleanRoomId }] : await prisma.room.findMany({ where: { propertyId, deletedAt: null } });
+        for (const r of roomsToBlock) {
+          await propertyRepository.bulkUpdateAvailability(r.id, datesToCheck, true);
+        }
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: req.userId } });
+      AuditService.log(
+        req.userId,
+        user ? user.name : 'Host',
+        'UPDATE_PEAK_SEASON',
+        'PEAK_SEASON',
+        `Updated peak season rule "${oldName}" to "${name}" successfully.`
+      );
+
+      res.json({ success: true, message: 'Rule updated successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/properties/:propertyId/peak-seasons/:name/toggle', requireAuth as any, async (req: any, res) => {
+    try {
+      const tenantId = req.userId;
+      const { propertyId, name } = req.params;
+      const { isActive } = req.body;
+
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return res.status(404).json({ error: 'Property not found.' });
+      if (property.tenantId !== tenantId && req.userRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      await prisma.peakSeasonRate.updateMany({
+        where: { propertyId, name, deletedAt: null },
+        data: { isActive: !!isActive }
+      });
+
+      const user = await prisma.user.findUnique({ where: { id: req.userId } });
+      AuditService.log(
+        req.userId,
+        user ? user.name : 'Host',
+        'TOGGLE_PEAK_SEASON',
+        'PEAK_SEASON',
+        `Toggled peak season rule "${name}" status to ${isActive ? 'ACTIVE' : 'INACTIVE'}.`
+      );
+
+      res.json({ success: true, message: 'Status updated successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/properties/:propertyId/peak-seasons/:name', requireAuth as any, async (req: any, res) => {
+    try {
+      const tenantId = req.userId;
+      const { propertyId, name } = req.params;
+
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return res.status(404).json({ error: 'Property not found.' });
+      if (property.tenantId !== tenantId && req.userRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      await prisma.peakSeasonRate.updateMany({
+        where: { propertyId, name, deletedAt: null },
+        data: { deletedAt: new Date() }
+      });
+
+      const user = await prisma.user.findUnique({ where: { id: req.userId } });
+      AuditService.log(
+        req.userId,
+        user ? user.name : 'Host',
+        'DELETE_PEAK_SEASON',
+        'PEAK_SEASON',
+        `Deleted peak season rule "${name}".`
+      );
+
+      res.json({ success: true, message: 'Peak season rule deleted (soft delete).' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // Favorites API
   app.get('/api/favorites', requireAuth as any, (req, res) => favoriteController.getFavorites(req, res));

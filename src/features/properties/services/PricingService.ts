@@ -91,7 +91,11 @@ export class PricingService {
           const chosenPeak = roomPeak || defaultPeak || matchingPeaks[0];
 
           if (chosenPeak) {
-            nightRate = Math.round(baseNightlyRate * Number(chosenPeak.rateMultiplier));
+            if (chosenPeak.adjustmentType === 'FIXED_AMOUNT_INCREASE') {
+              nightRate = baseNightlyRate + Number(chosenPeak.adjustmentValue);
+            } else {
+              nightRate = Math.round(baseNightlyRate * Number(chosenPeak.rateMultiplier));
+            }
             matchedPeak = chosenPeak;
           }
         }
@@ -110,7 +114,11 @@ export class PricingService {
     const tax = Math.round(subtotal * 0.10);
     const total = subtotal + cleaningFee + serviceFee + tax;
 
-    const finalRoomPriceVal = matchedPeak ? Math.round(baseNightlyRate * Number(matchedPeak.rateMultiplier)) : baseNightlyRate;
+    const finalRoomPriceVal = matchedPeak 
+      ? (matchedPeak.adjustmentType === 'FIXED_AMOUNT_INCREASE' 
+          ? baseNightlyRate + Number(matchedPeak.adjustmentValue) 
+          : Math.round(baseNightlyRate * Number(matchedPeak.rateMultiplier)))
+      : baseNightlyRate;
 
     const breakdown: PricingBreakdown = {
       nightlyRate: Number.isFinite(baseNightlyRate) ? baseNightlyRate : 0,
@@ -122,7 +130,11 @@ export class PricingService {
       taxes: Number.isFinite(tax) ? tax : 0,
       seasonalAdjustment: Number.isFinite(seasonalAdjustment) ? seasonalAdjustment : 0,
       total: Number.isFinite(total) ? total : 0,
-      peakMultiplier: matchedPeak ? Number(matchedPeak.rateMultiplier) : 1.0,
+      peakMultiplier: matchedPeak 
+        ? (matchedPeak.adjustmentType === 'FIXED_AMOUNT_INCREASE' 
+            ? (baseNightlyRate > 0 ? (baseNightlyRate + Number(matchedPeak.adjustmentValue)) / baseNightlyRate : 1.0) 
+            : Number(matchedPeak.rateMultiplier)) 
+        : 1.0,
       peakSeasonName: matchedPeak ? matchedPeak.name : null,
       finalRoomPrice: Number.isFinite(finalRoomPriceVal) ? finalRoomPriceVal : 0
     };
