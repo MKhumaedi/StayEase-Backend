@@ -91,14 +91,60 @@ export class ReviewRepository {
     });
   }
 
-  async findHostReviews(tenantId: string, page = 1, limit = 10) {
-    return prisma.review.findMany({
-      where: {
-        property: {
-          tenantId
-        },
-        deletedAt: null
+  async findHostReviews(tenantId: string, page = 1, limit = 10, filters?: {
+    propertyId?: string;
+    rating?: number;
+    hasReply?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }) {
+    const where: any = {
+      property: {
+        tenantId
       },
+      deletedAt: null
+    };
+
+    if (filters) {
+      if (filters.propertyId && filters.propertyId !== 'all') {
+        where.propertyId = filters.propertyId;
+      }
+      if (filters.rating) {
+        where.rating = Number(filters.rating);
+      }
+      if (filters.hasReply === 'true') {
+        where.replyComment = { not: null };
+      } else if (filters.hasReply === 'false') {
+        where.replyComment = null;
+      }
+
+      if (filters.startDate || filters.endDate) {
+        where.createdAt = {};
+        if (filters.startDate) {
+          where.createdAt.gte = new Date(filters.startDate);
+        }
+        if (filters.endDate) {
+          const d = new Date(filters.endDate);
+          d.setHours(23, 59, 59, 999);
+          where.createdAt.lte = d;
+        }
+      }
+
+      if (filters.search) {
+        const searchPattern = filters.search.trim();
+        where.OR = [
+          { guestName: { contains: searchPattern, mode: 'insensitive' } },
+          { comment: { contains: searchPattern, mode: 'insensitive' } },
+          { replyComment: { contains: searchPattern, mode: 'insensitive' } },
+          { property: { name: { contains: searchPattern, mode: 'insensitive' } } },
+          { booking: { bookingCode: { contains: searchPattern, mode: 'insensitive' } } }
+        ];
+      }
+    }
+
+    return prisma.review.findMany({
+      where,
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { createdAt: 'desc' },
@@ -116,19 +162,71 @@ export class ReviewRepository {
             name: true,
             avatarUrl: true
           }
+        },
+        booking: {
+          select: {
+            id: true,
+            bookingCode: true
+          }
         }
       }
     });
   }
 
-  async countHostReviews(tenantId: string): Promise<number> {
-    return prisma.review.count({
-      where: {
-        property: {
-          tenantId
-        },
-        deletedAt: null
+  async countHostReviews(tenantId: string, filters?: {
+    propertyId?: string;
+    rating?: number;
+    hasReply?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }): Promise<number> {
+    const where: any = {
+      property: {
+        tenantId
+      },
+      deletedAt: null
+    };
+
+    if (filters) {
+      if (filters.propertyId && filters.propertyId !== 'all') {
+        where.propertyId = filters.propertyId;
       }
+      if (filters.rating) {
+        where.rating = Number(filters.rating);
+      }
+      if (filters.hasReply === 'true') {
+        where.replyComment = { not: null };
+      } else if (filters.hasReply === 'false') {
+        where.replyComment = null;
+      }
+
+      if (filters.startDate || filters.endDate) {
+        where.createdAt = {};
+        if (filters.startDate) {
+          where.createdAt.gte = new Date(filters.startDate);
+        }
+        if (filters.endDate) {
+          const d = new Date(filters.endDate);
+          d.setHours(23, 59, 59, 999);
+          where.createdAt.lte = d;
+        }
+      }
+
+      if (filters.search) {
+        const searchPattern = filters.search.trim();
+        where.OR = [
+          { guestName: { contains: searchPattern, mode: 'insensitive' } },
+          { comment: { contains: searchPattern, mode: 'insensitive' } },
+          { replyComment: { contains: searchPattern, mode: 'insensitive' } },
+          { property: { name: { contains: searchPattern, mode: 'insensitive' } } },
+          { booking: { bookingCode: { contains: searchPattern, mode: 'insensitive' } } }
+        ];
+      }
+    }
+
+    return prisma.review.count({
+      where
     });
   }
 }

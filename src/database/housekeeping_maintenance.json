@@ -474,6 +474,31 @@
           "done": false
         }
       ]
+    },
+    {
+      "id": "c935f9dd-0585-47b1-a321-a1b712a9a309",
+      "roomName": "Suit",
+      "propertyName": "Hotel Indonesia",
+      "status": "READY",
+      "assignedTo": "Unassigned",
+      "checklist": [
+        {
+          "text": "Replace linens & beddings",
+          "done": false
+        },
+        {
+          "text": "Sanitize bathroom and surfaces",
+          "done": false
+        },
+        {
+          "text": "Restock refreshments & amenities",
+          "done": false
+        },
+        {
+          "text": "Inspect and dust fixtures",
+          "done": false
+        }
+      ]
     }
   ],
   "maintenance": []

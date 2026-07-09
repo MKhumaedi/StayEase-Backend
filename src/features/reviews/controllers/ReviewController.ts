@@ -146,8 +146,18 @@ export class ReviewController {
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 10;
 
-      const reviews = await reviewRepository.findHostReviews(tenantId, page, limit);
-      const total = await reviewRepository.countHostReviews(tenantId);
+      const { propertyId, rating, hasReply, startDate, endDate, search } = req.query;
+      const filters = {
+        propertyId: propertyId ? String(propertyId) : undefined,
+        rating: rating ? Number(rating) : undefined,
+        hasReply: hasReply ? String(hasReply) : undefined,
+        startDate: startDate ? String(startDate) : undefined,
+        endDate: endDate ? String(endDate) : undefined,
+        search: search ? String(search) : undefined,
+      };
+
+      const reviews = await reviewRepository.findHostReviews(tenantId, page, limit, filters);
+      const total = await reviewRepository.countHostReviews(tenantId, filters);
       const stats = await Promise.all(
         reviews.map(async r => {
           return await reviewRepository.getAverageRatingAndCount(r.propertyId);
