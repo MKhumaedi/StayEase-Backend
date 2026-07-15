@@ -49,13 +49,15 @@ export class PropertyService {
   }
 
   private buildPropertyFields(tenantId: string, categoryId: string, data: any) {
+    const propName = data.name || 'Untitled Property';
+    const draftIdSuffix = data.id ? `-${data.id}` : `-${Date.now()}`;
     return {
-      name: data.name,
-      slug: this.toSlug(data.name),
+      name: propName,
+      slug: (this.toSlug(propName) || 'untitled') + draftIdSuffix,
       description: data.description || 'Elegant StayEase suite.',
       categoryId,
       tenantId,
-      location: data.location || 'Jakarta, Indonesia',
+      location: data.location || (data.city && data.province ? `${data.city}, ${data.province}` : 'Jakarta, Indonesia'),
       city: data.city || 'Jakarta',
       province: data.province || 'DKI Jakarta',
       address: data.address || data.fullAddress || '',
@@ -71,7 +73,9 @@ export class PropertyService {
       serviceFee: data.serviceFee ? parseInt(data.serviceFee.toString()) : 0,
       securityDeposit: data.securityDeposit ? parseInt(data.securityDeposit.toString()) : 0,
       guests: data.guests ? parseInt(data.guests.toString()) : 1,
-      status: data.status || 'ACTIVE'
+      status: data.status || 'ACTIVE',
+      currentWizardStep: data.currentWizardStep ? parseInt(data.currentWizardStep.toString()) : 1,
+      progressPercentage: data.progressPercentage ? parseInt(data.progressPercentage.toString()) : 0
     };
   }
 
@@ -178,6 +182,8 @@ export class PropertyService {
     if (data.serviceFee !== undefined) fields.serviceFee = parseInt(data.serviceFee.toString());
     if (data.securityDeposit !== undefined) fields.securityDeposit = parseInt(data.securityDeposit.toString());
     if (data.guests !== undefined) fields.guests = parseInt(data.guests.toString());
+    if (data.currentWizardStep !== undefined) fields.currentWizardStep = parseInt(data.currentWizardStep.toString());
+    if (data.progressPercentage !== undefined) fields.progressPercentage = parseInt(data.progressPercentage.toString());
   }
 
   private buildUpdateFields(data: any) {
@@ -185,13 +191,14 @@ export class PropertyService {
     const keys = [
       'name', 'description', 'categoryId', 'location', 'city', 'province',
       'beds', 'baths', 'sqft', 'basePrice', 'imageUrls', 'amenities',
-      'cleaningFee', 'serviceFee', 'securityDeposit', 'guests', 'status'
+      'cleaningFee', 'serviceFee', 'securityDeposit', 'guests', 'status',
+      'currentWizardStep', 'progressPercentage'
     ];
     for (const key of keys) {
       if (data[key] !== undefined) fields[key] = data[key];
     }
     if (data.name !== undefined) {
-      fields.slug = this.toSlug(data.name);
+      fields.slug = this.toSlug(data.name) + '-' + (data.id || Date.now());
     }
     if (data.address !== undefined || data.fullAddress !== undefined) {
       fields.address = data.address || data.fullAddress || '';
@@ -207,6 +214,48 @@ export class PropertyService {
       await this.saveRooms(id, data.rooms);
     }
     return updated;
+  }
+
+  async upsertPropertyDraft(tenantId: string, data: any) {
+    const categoryId = await this.resolveCategoryId(data.categoryId);
+    const fields = {
+      ...this.buildPropertyFields(tenantId, categoryId, data),
+      id: data.id || undefined
+    };
+
+    // If an ID was supplied, check if the record exists to decide on update or create
+    let exists = false;
+    if (fields.id) {
+      const existing = await prisma.property.findUnique({
+        where: { id: fields.id }
+      });
+      if (existing) exists = true;
+    }
+
+    let result: any;
+    if (exists && fields.id) {
+      result = await prisma.property.update({
+        where: { id: fields.id },
+        data: fields
+      });
+    } else {
+      result = await prisma.property.create({
+        data: fields
+      });
+    }
+
+    if (data.imageUrls && data.imageUrls.length > 0) {
+      await prisma.propertyImage.deleteMany({
+        where: { propertyId: result.id }
+      });
+      await this.savePropertyImages(result.id, data.imageUrls);
+    }
+
+    if (data.rooms) {
+      await this.saveRooms(result.id, data.rooms);
+    }
+
+    return result;
   }
 
   async deleteProperty(id: string) {

@@ -714,6 +714,7 @@ async function startServer() {
   app.get('/api/bookings/:id', requireAuth as any, (req, res) => bookingController.getBooking(req, res));
   app.get('/api/bookings', requireAuth as any, (req, res) => bookingController.listBookings(req, res));
   app.get('/api/reports', requireAuth as any, (req, res) => bookingController.getReports(req, res));
+  app.get('/api/reports/export', requireAuth as any, (req, res) => bookingController.exportReport(req, res));
 
   // Housekeeping APIs
   app.get('/api/housekeeping', requireAuth as any, async (req, res) => {

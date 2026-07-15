@@ -165,6 +165,8 @@ model Property {
   imageUrls       String[]
   amenities       String[]
   status          String           @default("ACTIVE")
+  currentWizardStep  Int?           @default(1)
+  progressPercentage Int?           @default(0)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   deletedAt       DateTime?

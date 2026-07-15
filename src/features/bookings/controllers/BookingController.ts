@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { bookingService } from '../services/BookingService';
 import { bookingRepository } from '../repositories/BookingRepository';
 import { CreateBookingSchema, UploadPaymentProofSchema, BookingSearchSchema, BookingSearchInput } from '../validations/BookingValidation';
+import { ExportService } from '../services/ExportService';
 import { AuthenticatedRequest } from '../../../middlewares/AuthMiddleware';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
 import { AuditTrailService } from '../../payment-proof/services/AuditTrailService';
@@ -144,21 +145,113 @@ export class BookingController {
   async getBookingByCode(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { code } = req.params;
-      const booking = await bookingRepository.findByCode(code);
+      console.log(`[getBookingByCode] Received raw code: "${code}"`);
+
+      // Normalize multiple formats
+      let normalizedCode = '';
+      if (code) {
+        const decoded = decodeURIComponent(code).trim();
+        
+        // JSON support
+        if (decoded.startsWith('{') && decoded.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(decoded);
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.bookingCode) {
+                normalizedCode = parsed.bookingCode.trim();
+              } else if (parsed.code) {
+                normalizedCode = parsed.code.trim();
+              }
+            }
+          } catch (e) {
+            console.error(`[getBookingByCode] Failed JSON parse:`, e);
+          }
+        }
+
+        // URL format support
+        if (!normalizedCode) {
+          const urlMatch = decoded.match(/\/checkin\/([A-Za-z0-9-]+)/i);
+          if (urlMatch && urlMatch[1]) {
+            normalizedCode = urlMatch[1].trim();
+          }
+        }
+
+        // Invoice multi-line plain text support
+        if (!normalizedCode) {
+          const lineMatch = decoded.match(/Booking Code:\s*([A-Za-z0-9-]+)/i);
+          if (lineMatch && lineMatch[1]) {
+            normalizedCode = lineMatch[1].trim();
+          }
+        }
+
+        // Generic BK-SE-XXXX match
+        if (!normalizedCode) {
+          const bkSeMatch = decoded.match(/(BK-SE-\d+)/i);
+          if (bkSeMatch && bkSeMatch[1]) {
+            normalizedCode = bkSeMatch[1].trim();
+          }
+        }
+
+        // Generic SE-XXXX match
+        if (!normalizedCode) {
+          const seMatch = decoded.match(/(SE-\d+)/i);
+          if (seMatch && seMatch[1]) {
+            normalizedCode = seMatch[1].trim();
+          }
+        }
+
+        // Default fallback
+        if (!normalizedCode) {
+          normalizedCode = decoded;
+        }
+      }
+
+      const finalCode = normalizedCode.toUpperCase();
+      console.log(`[getBookingByCode] Final normalized code lookup: "${finalCode}"`);
+
+      // === TEMPORARY DEBUG LOGS START ===
+      console.log("[BACKEND DEBUG] Incoming Authorization header:", req.headers.authorization);
+      console.log("[BACKEND DEBUG] req.userId:", req.userId);
+      console.log("[BACKEND DEBUG] req.userRole:", req.userRole);
+      console.log("[BACKEND DEBUG] req.body:", req.body);
+      console.log("[BACKEND DEBUG] bookingCode param:", code);
+      // === TEMPORARY DEBUG LOGS END ===
+
+      const booking = await bookingRepository.findByCode(finalCode);
       if (!booking) {
-        res.status(404).json({ error: 'Booking QR not recognized.' });
+        const msg = `Booking QR not recognized. (Parsed lookup: "${finalCode}" from raw: "${code}")`;
+        console.warn(`[getBookingByCode] Warning: ${msg}`);
+        // === TEMPORARY DEBUG LOGS START ===
+        console.log("[BACKEND DEBUG] Final response status: 404");
+        // === TEMPORARY DEBUG LOGS END ===
+        res.status(404).json({ error: msg });
         return;
       }
+
       const ok = req.userRole === 'ADMIN' || booking.guestId === req.userId || booking.property.tenantId === req.userId;
       if (!ok) {
+        // === TEMPORARY DEBUG LOGS START ===
+        console.log("[BACKEND DEBUG] Access denied comparison details:", {
+          guestId: booking.guestId,
+          reqUserId: req.userId,
+          tenantId: booking.property?.tenantId,
+          reqUserRole: req.userRole
+        });
+        console.log("[BACKEND DEBUG] Final response status: 403");
+        // === TEMPORARY DEBUG LOGS END ===
         res.status(403).json({ error: 'Access denied' });
         return;
       }
+
+      // === TEMPORARY DEBUG LOGS START ===
+      console.log("[BACKEND DEBUG] Final response status: 200 (Success)");
+      // === TEMPORARY DEBUG LOGS END ===
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
       res.json(booking);
     } catch (err: any) {
+      console.error(`[getBookingByCode] Error:`, err);
       res.status(400).json({ error: err.message });
     }
   }
@@ -166,13 +259,68 @@ export class BookingController {
   async getReports(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const landlordId = req.userId;
-      const stats = await bookingService.getReportStats(landlordId);
+      const { propertyId, period, startDate, endDate } = req.query as {
+        propertyId?: string;
+        period?: string;
+        startDate?: string;
+        endDate?: string;
+      };
+      const stats = await bookingService.getReportStats(
+        landlordId,
+        propertyId,
+        period,
+        startDate,
+        endDate
+      );
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
       res.json(stats);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  }
+
+  async exportReport(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const landlordId = req.userId;
+      if (!landlordId) {
+        res.status(401).json({ error: 'Session required' });
+        return;
+      }
+      
+      const { format, period, startDate, endDate, propertyId, reportType } = req.query as {
+        format?: 'csv' | 'xlsx';
+        period?: string;
+        startDate?: string;
+        endDate?: string;
+        propertyId?: string;
+        reportType?: 'revenue' | 'booking' | 'occupancy' | 'operational';
+      };
+
+      if (!format || (format !== 'csv' && format !== 'xlsx')) {
+        res.status(400).json({ error: 'Invalid or missing export format (must be csv or xlsx)' });
+        return;
+      }
+
+      const exportService = new ExportService();
+      const { filename, buffer, mimeType } = await exportService.generateReport(
+        landlordId,
+        format,
+        period || 'this_year',
+        startDate,
+        endDate,
+        propertyId,
+        reportType || 'revenue'
+      );
+
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.end(buffer);
+    } catch (err: any) {
+      console.error('[exportReport] Error:', err);
+      res.status(500).json({ error: err.message || 'Failed to export report' });
     }
   }
 

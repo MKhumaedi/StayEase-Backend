@@ -156,7 +156,13 @@ export class BookingService {
     return Math.ceil(ms / (1000 * 60 * 60 * 24));
   }
 
-  async getReportStats(landlordId?: string) {
+  async getReportStats(
+    landlordId?: string,
+    propertyId?: string,
+    period?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
     if (!landlordId) {
       return {
         totalRevenue: 0,
@@ -173,19 +179,54 @@ export class BookingService {
           lowestPerforming: null,
           highestOccupancy: null,
           highestRevenue: null
-        }
+        },
+        operations: {
+          todayCheckIns: 0,
+          todayCheckOuts: 0,
+          guestsStayingNow: 0,
+          lateCheckOuts: 0
+        },
+        totalRevenueAllTime: 0,
+        todayRevenue: 0,
+        thisWeekRevenue: 0,
+        thisMonthRevenue: 0,
+        thisYearRevenue: 0,
+        adr: 0,
+        revpar: 0,
+        averageLengthOfStay: 0,
+        averageBookingLeadTime: 0,
+        properties: []
       };
     }
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const SUCCESSFUL_STATUSES: BookingStatus[] = [
+      BookingStatus.CONFIRMED,
+      BookingStatus.CHECKED_IN,
+      BookingStatus.CHECKED_OUT,
+      BookingStatus.COMPLETED
+    ];
 
-    const startOfCurrentMonth = new Date(currentYear, currentMonth, 1);
-    const endOfCurrentMonth = new Date(currentYear, currentMonth + 1, 1);
+    // 1. Fetch properties for this landlord
+    const tenantProperties = await prisma.property.findMany({
+      where: { tenantId: landlordId, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' }
+    });
 
-    // Fetch properties with rooms and bookings
+    const totalProperties = tenantProperties.length;
+
+    // Fetch rooms count
+    const activeRoomsCount = await prisma.room.count({
+      where: {
+        deletedAt: null,
+        property: {
+          tenantId: landlordId,
+          deletedAt: null
+        }
+      }
+    });
+
+    // Let's fetch all properties with rooms, bookings, and reviews for other standard stats
     const propertiesWithData = await prisma.property.findMany({
       where: { tenantId: landlordId, deletedAt: null },
       select: {
@@ -193,9 +234,7 @@ export class BookingService {
         name: true,
         rooms: {
           where: { deletedAt: null },
-          select: {
-            id: true
-          }
+          select: { id: true }
         },
         bookings: {
           where: { deletedAt: null },
@@ -211,89 +250,297 @@ export class BookingService {
         },
         reviews: {
           where: { deletedAt: null },
-          select: {
-            id: true
-          }
+          select: { id: true }
         }
       }
     });
 
-    const totalProperties = propertiesWithData.length;
-    
-    // Count active rooms
-    const activeRooms = propertiesWithData.reduce((acc, p) => acc + p.rooms.length, 0);
+    // Flatten all bookings
+    const allBookings = propertiesWithData.flatMap(p => p.bookings);
 
-    // Filter confirmed/completed bookings for the current month
-    const currentMonthBookings = propertiesWithData.flatMap(p => p.bookings).filter(b => {
-      const matchStatus = b.status === 'CONFIRMED' || b.status === 'COMPLETED';
+    // Standard monthly bookings (current calendar month, not deleted, not cancelled)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+    const startOfCurrentMonth = new Date(currentYear, currentMonth, 1);
+    const endOfCurrentMonth = new Date(currentYear, currentMonth + 1, 1);
+
+    const currentMonthBookings = allBookings.filter(b => {
+      const matchStatus = b.status === 'CONFIRMED' || b.status === 'COMPLETED' || b.status === 'CHECKED_IN' || b.status === 'CHECKED_OUT';
       const createdDate = new Date(b.createdAt);
-      const matchMonth = createdDate >= startOfCurrentMonth && createdDate < endOfCurrentMonth;
-      return matchStatus && matchMonth;
+      return matchStatus && createdDate >= startOfCurrentMonth && createdDate < endOfCurrentMonth;
     });
 
-    // Total monthly revenue (from confirmed/completed bookings of the current month)
-    const totalRevenue = currentMonthBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+    const totalRevenueMonth = currentMonthBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
 
-    // Total monthly bookings (all bookings created in current month, regardless of status but excluding deleted/canceled ones)
-    const monthlyBookings = propertiesWithData.flatMap(p => p.bookings).filter(b => {
+    const monthlyBookings = allBookings.filter(b => {
       const createdDate = new Date(b.createdAt);
       return createdDate >= startOfCurrentMonth && createdDate < endOfCurrentMonth && b.status !== 'CANCELLED';
     }).length;
 
-    // Occupancy Rate: Booked Room Nights in Current Month / Available Room Nights in Current Month
     const bookedRoomNights = currentMonthBookings.reduce((sum, b) => sum + b.nights, 0);
-    const availableRoomNights = activeRooms * daysInMonth;
-    const occupancyRate = availableRoomNights > 0 
+    const availableRoomNights = activeRoomsCount * daysInMonth;
+    const occupancyRateMonth = availableRoomNights > 0 
       ? Number(((bookedRoomNights / availableRoomNights) * 100).toFixed(1))
       : 0.0;
 
-    // Pending bookings count
-    const pendingOrders = propertiesWithData.flatMap(p => p.bookings).filter(b => b.status === 'WAITING_CONFIRMATION').length;
-
-    // Total reviews count
+    const pendingOrders = allBookings.filter(b => b.status === 'WAITING_CONFIRMATION').length;
     const newReviews = propertiesWithData.reduce((acc, p) => acc + p.reviews.length, 0);
 
-    // Last 12 months revenueAnalytics
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const revenueAnalytics = [];
-    
-    // Flatten all bookings once
-    const allBookings = propertiesWithData.flatMap(p => p.bookings);
+    // Dynamic Filter Range Calculations
+    let filterStart: Date;
+    let filterEnd: Date;
+    const todayDate = new Date();
 
-    for (let i = 11; i >= 0; i--) {
-      const monthDate = new Date(currentYear, currentMonth - i, 1);
-      const nextMonthDate = new Date(currentYear, currentMonth - i + 1, 1);
-
-      const monthlyConfirmedBookings = allBookings.filter(b => {
-        const matchStatus = b.status === 'CONFIRMED' || b.status === 'COMPLETED';
-        const createdDate = new Date(b.createdAt);
-        return matchStatus && createdDate >= monthDate && createdDate < nextMonthDate;
-      });
-
-      const label = `${monthNames[monthDate.getMonth()]} ${monthDate.getFullYear().toString().slice(-2)}`;
-      const rev = monthlyConfirmedBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
-      const exp = Number((rev * 0.15).toFixed(2));
-      const net = Number((rev - exp).toFixed(2));
-
-      revenueAnalytics.push({
-        month: label,
-        amt: rev, // Compatible with BarChart dataKey="amt"
-        revenue: rev,
-        expenses: exp,
-        netIncome: net
-      });
+    if (period === 'today') {
+      filterStart = new Date();
+      filterStart.setHours(0, 0, 0, 0);
+      filterEnd = new Date();
+      filterEnd.setHours(23, 59, 59, 999);
+    } else if (period === 'this_week') {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      filterStart = new Date(d.setDate(diff));
+      filterStart.setHours(0, 0, 0, 0);
+      filterEnd = new Date(filterStart);
+      filterEnd.setDate(filterEnd.getDate() + 7);
+      filterEnd.setHours(23, 59, 59, 999);
+    } else if (period === 'this_month') {
+      filterStart = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+      filterEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0);
+      filterEnd.setHours(23, 59, 59, 999);
+    } else if (period === 'this_year') {
+      filterStart = new Date(todayDate.getFullYear(), 0, 1);
+      filterEnd = new Date(todayDate.getFullYear(), 11, 31);
+      filterEnd.setHours(23, 59, 59, 999);
+    } else if (period === 'custom' && startDate && endDate) {
+      filterStart = new Date(startDate + 'T00:00:00');
+      filterEnd = new Date(endDate + 'T23:59:59');
+    } else {
+      // Default to this year
+      filterStart = new Date(todayDate.getFullYear(), 0, 1);
+      filterEnd = new Date(todayDate.getFullYear(), 11, 31);
+      filterEnd.setHours(23, 59, 59, 999);
     }
 
-    const curRev = revenueAnalytics[11]?.revenue || 0;
-    const prevRev = revenueAnalytics[10]?.revenue || 0;
-    const growthRate = prevRev > 0 
-      ? Number((((curRev - prevRev) / prevRev) * 100).toFixed(1)) 
-      : (curRev > 0 ? 100.0 : 0.0);
+    // Filter active bookings for current landlord & target property (if any)
+    const successBookings = await prisma.booking.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: SUCCESSFUL_STATUSES },
+        propertyId: propertyId || undefined,
+        property: {
+          tenantId: landlordId,
+          deletedAt: null
+        }
+      }
+    });
 
-    // Compute property performance
+    // 2. Compute dynamic metrics:
+    // Total Revenue (all-time of successful bookings)
+    const totalRevenueAllTime = successBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+
+    // Today's Revenue
+    const todayS = new Date(); todayS.setHours(0,0,0,0);
+    const todayE = new Date(); todayE.setHours(23,59,59,999);
+    const todayRevenue = successBookings
+      .filter(b => {
+        const d = new Date(b.createdAt);
+        return d >= todayS && d <= todayE;
+      })
+      .reduce((sum, b) => sum + Number(b.totalAmount), 0);
+
+    // This Week Revenue
+    const dW = new Date();
+    const dayW = dW.getDay();
+    const diffW = dW.getDate() - dayW + (dayW === 0 ? -6 : 1);
+    const weekS = new Date(dW.setDate(diffW)); weekS.setHours(0,0,0,0);
+    const weekE = new Date(weekS); weekE.setDate(weekE.getDate() + 7);
+    const thisWeekRevenue = successBookings
+      .filter(b => {
+        const d = new Date(b.createdAt);
+        return d >= weekS && d < weekE;
+      })
+      .reduce((sum, b) => sum + Number(b.totalAmount), 0);
+
+    // This Month Revenue
+    const monthS = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    const monthE = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 1);
+    const thisMonthRevenue = successBookings
+      .filter(b => {
+        const d = new Date(b.createdAt);
+        return d >= monthS && d < monthE;
+      })
+      .reduce((sum, b) => sum + Number(b.totalAmount), 0);
+
+    // This Year Revenue
+    const yearS = new Date(todayDate.getFullYear(), 0, 1);
+    const yearE = new Date(todayDate.getFullYear() + 1, 0, 1);
+    const thisYearRevenue = successBookings
+      .filter(b => {
+        const d = new Date(b.createdAt);
+        return d >= yearS && d < yearE;
+      })
+      .reduce((sum, b) => sum + Number(b.totalAmount), 0);
+
+    // Dynamic period filtering
+    const filteredBookings = successBookings.filter(b => {
+      const d = new Date(b.createdAt);
+      return d >= filterStart && d <= filterEnd;
+    });
+
+    const filteredRevenue = filteredBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+    const totalNights = filteredBookings.reduce((sum, b) => sum + b.nights, 0);
+
+    const adr = totalNights > 0 ? Math.round(filteredRevenue / totalNights) : 0;
+
+    // Occupancy logic for filtered period
+    const filteredPropertyRoomsCount = await prisma.room.count({
+      where: {
+        deletedAt: null,
+        propertyId: propertyId || undefined,
+        property: {
+          tenantId: landlordId,
+          deletedAt: null
+        }
+      }
+    });
+
+    const diffMs = filterEnd.getTime() - filterStart.getTime();
+    const daysInPeriod = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    const availableRoomNightsInPeriod = filteredPropertyRoomsCount * daysInPeriod;
+    const occupancyRate = availableRoomNightsInPeriod > 0
+      ? Math.min(100.0, Number(((totalNights / availableRoomNightsInPeriod) * 100).toFixed(1)))
+      : 0.0;
+
+    const revpar = Math.round(adr * (occupancyRate / 100));
+
+    const averageLengthOfStay = filteredBookings.length > 0
+      ? Number((totalNights / filteredBookings.length).toFixed(1))
+      : 0.0;
+
+    // Average booking lead time
+    const leadTimes = filteredBookings.map(b => {
+      const created = new Date(b.createdAt).getTime();
+      const start = new Date(b.startDate + 'T00:00:00').getTime();
+      return Math.max(0, Math.ceil((start - created) / (1000 * 60 * 60 * 24)));
+    });
+    const averageBookingLeadTime = leadTimes.length > 0
+      ? Math.round(leadTimes.reduce((sum, t) => sum + t, 0) / leadTimes.length)
+      : 0;
+
+    // 3. Dynamic aggregated charts: daily or monthly
+    const revenueAnalytics = [];
+    const totalDays = Math.ceil((filterEnd.getTime() - filterStart.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (totalDays <= 31) {
+      // Daily aggregates
+      for (let d = new Date(filterStart); d <= filterEnd; d.setDate(d.getDate() + 1)) {
+        const startOfDay = new Date(d); startOfDay.setHours(0,0,0,0);
+        const endOfDay = new Date(d); endOfDay.setHours(23,59,59,999);
+
+        const dayBookings = filteredBookings.filter(b => {
+          const created = new Date(b.createdAt);
+          return created >= startOfDay && created <= endOfDay;
+        });
+
+        const dayRev = dayBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+        const dayNights = dayBookings.reduce((sum, b) => sum + b.nights, 0);
+        const dayAvgLos = dayBookings.length > 0 ? Number((dayNights / dayBookings.length).toFixed(1)) : 0;
+
+        const dayOfWeekStr = startOfDay.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayStr = startOfDay.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+        const label = `${dayOfWeekStr} ${dayStr}`;
+
+        const dayAvail = filteredPropertyRoomsCount * 1;
+        const dayOcc = dayAvail > 0 ? Math.min(100.0, Number(((dayNights / dayAvail) * 100).toFixed(1))) : 0.0;
+        const target = Math.round(dayRev > 0 ? dayRev * 1.15 : (filteredPropertyRoomsCount * 500000 * 0.6));
+
+        revenueAnalytics.push({
+          month: label, // Compatible with standard frontend charts
+          label,
+          amt: dayRev,
+          revenue: dayRev,
+          target,
+          bookings: dayBookings.length,
+          lengthOfStay: dayAvgLos,
+          rate: dayOcc,
+          weekendRate: Math.min(100.0, Number((dayOcc * 1.15).toFixed(1))),
+          leadTime: dayBookings.length > 0 ? Math.round(dayBookings.reduce((sum, b) => {
+            const c = new Date(b.createdAt).getTime();
+            const s = new Date(b.startDate + 'T00:00:00').getTime();
+            return sum + Math.max(0, Math.ceil((s - c) / (1000 * 60 * 60 * 24)));
+          }, 0) / dayBookings.length) : 0,
+          adr: dayNights > 0 ? Math.round(dayRev / dayNights) : 0
+        });
+      }
+    } else {
+      // Monthly aggregates
+      let currentMonthCursor = new Date(filterStart.getFullYear(), filterStart.getMonth(), 1);
+      while (currentMonthCursor <= filterEnd) {
+        const nextMonthCursor = new Date(currentMonthCursor.getFullYear(), currentMonthCursor.getMonth() + 1, 1);
+        const startOfM = currentMonthCursor > filterStart ? currentMonthCursor : filterStart;
+        const endOfM = nextMonthCursor < filterEnd ? nextMonthCursor : filterEnd;
+
+        const monthBookings = filteredBookings.filter(b => {
+          const created = new Date(b.createdAt);
+          return created >= startOfM && created < endOfM;
+        });
+
+        const monthRev = monthBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+        const monthNights = monthBookings.reduce((sum, b) => sum + b.nights, 0);
+        const monthAvgLos = monthBookings.length > 0 ? Number((monthNights / monthBookings.length).toFixed(1)) : 0;
+
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const label = `${monthNames[startOfM.getMonth()]} ${startOfM.getFullYear().toString().slice(-2)}`;
+
+        const daysInThisSegment = Math.max(1, Math.ceil((endOfM.getTime() - startOfM.getTime()) / (1000 * 60 * 60 * 24)));
+        const segmentAvail = filteredPropertyRoomsCount * daysInThisSegment;
+        const monthOcc = segmentAvail > 0 ? Math.min(100.0, Number(((monthNights / segmentAvail) * 100).toFixed(1))) : 0.0;
+        const target = Math.round(monthRev > 0 ? monthRev * 1.15 : (filteredPropertyRoomsCount * daysInThisSegment * 500000 * 0.6));
+
+        revenueAnalytics.push({
+          month: label,
+          label,
+          amt: monthRev,
+          revenue: monthRev,
+          target,
+          bookings: monthBookings.length,
+          lengthOfStay: monthAvgLos,
+          rate: monthOcc,
+          weekendRate: Math.min(100.0, Number((monthOcc * 1.15).toFixed(1))),
+          leadTime: monthBookings.length > 0 ? Math.round(monthBookings.reduce((sum, b) => {
+            const c = new Date(b.createdAt).getTime();
+            const s = new Date(b.startDate + 'T00:00:00').getTime();
+            return sum + Math.max(0, Math.ceil((s - c) / (1000 * 60 * 60 * 24)));
+          }, 0) / monthBookings.length) : 0,
+          adr: monthNights > 0 ? Math.round(monthRev / monthNights) : 0
+        });
+
+        currentMonthCursor = nextMonthCursor;
+      }
+    }
+
+    // Backward-compatible MoM Growth rate for Overview Tab
+    const curMonthRev = thisMonthRevenue;
+    const prevMonthS = new Date(todayDate.getFullYear(), todayDate.getMonth() - 1, 1);
+    const prevMonthE = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    const prevMonthBookings = successBookings.filter(b => {
+      const d = new Date(b.createdAt);
+      return d >= prevMonthS && d < prevMonthE;
+    });
+    const prevMonthRev = prevMonthBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+    const growthRate = prevMonthRev > 0 
+      ? Number((((curMonthRev - prevMonthRev) / prevMonthRev) * 100).toFixed(1))
+      : (curMonthRev > 0 ? 100.0 : 0.0);
+
+    // Compute standard property performance (backward compatible)
     const performanceList = propertiesWithData.map(p => {
       const roomsCount = p.rooms.length;
-      const confirmedBookings = p.bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'COMPLETED');
+      const confirmedBookings = p.bookings.filter(b => SUCCESSFUL_STATUSES.includes(b.status));
       const bookingsCount = confirmedBookings.length;
       const revenue = confirmedBookings.reduce((sum, b) => sum + Number(b.totalAmount), 0);
       const bookedNights = confirmedBookings.reduce((sum, b) => sum + b.nights, 0);
@@ -328,24 +575,22 @@ export class BookingService {
       ? [...performanceList].sort((a, b) => b.revenue - a.revenue)[0] 
       : null;
 
-    // Operations metrics
-    // Get YYYY-MM-DD date string
+    // Operations metrics (backward compatible)
     const todayStr = new Date().toISOString().split('T')[0];
-
     const todayCheckInsCount = allBookings.filter(b => b.status === 'CONFIRMED' && b.startDate === todayStr).length;
     const todayCheckOutsCount = allBookings.filter(b => b.status === 'CHECKED_IN' && b.endDate === todayStr).length;
     const guestsStayingNowCount = allBookings.filter(b => b.status === 'CHECKED_IN').length;
     const lateCheckOutsCount = allBookings.filter(b => b.status === 'CHECKED_IN' && todayStr > b.endDate).length;
 
     return {
-      totalRevenue,
-      occupancyRate,
+      // Main dashboard backwards-compatible fields
+      totalRevenue: totalRevenueMonth, // monthly revenue for dashboard card
+      occupancyRate: occupancyRateMonth, // monthly occupancy rate for dashboard card
       pendingOrders,
       newReviews,
       totalProperties,
-      activeRooms,
+      activeRooms: activeRoomsCount,
       monthlyBookings,
-      revenueAnalytics,
       growthRate,
       performance: {
         topPerforming,
@@ -358,7 +603,19 @@ export class BookingService {
         todayCheckOuts: todayCheckOutsCount,
         guestsStayingNow: guestsStayingNowCount,
         lateCheckOuts: lateCheckOutsCount
-      }
+      },
+      // New enriched Revenue Dashboard fields
+      totalRevenueAllTime,
+      todayRevenue,
+      thisWeekRevenue,
+      thisMonthRevenue,
+      thisYearRevenue,
+      adr,
+      revpar,
+      averageLengthOfStay,
+      averageBookingLeadTime,
+      properties: tenantProperties,
+      revenueAnalytics
     };
   }
 

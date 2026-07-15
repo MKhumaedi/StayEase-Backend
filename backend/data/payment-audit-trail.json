@@ -1,6 +1,24 @@
 [
   {
     "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "e9a6bef9-8c80-4f41-b1df-ba2b3f9d6c96",
+    "action": "CHECK_IN",
+    "timestamp": "2026-07-15T06:49:10.751Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "action": "CHECK_IN",
+    "timestamp": "2026-07-15T04:12:49.498Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "action": "CHECK_IN",
+    "timestamp": "2026-07-15T04:12:45.984Z"
+  },
+  {
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
     "bookingId": "a34f8109-39e6-4cc8-a2de-bb3e7ef58b7c",
     "action": "CHECK_OUT",
     "timestamp": "2026-06-30T08:22:41.159Z"

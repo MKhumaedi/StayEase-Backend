@@ -40,6 +40,33 @@ export const PropertyInputSchema = z.object({
   rooms: z.array(z.any()).optional()
 });
 
+export const DraftInputSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional().default('Untitled Property'),
+  description: z.string().optional().default(''),
+  categoryId: z.string().optional().nullable(),
+  city: z.string().optional().default(''),
+  province: z.string().optional().default(''),
+  address: z.string().optional().nullable(),
+  fullAddress: z.string().optional().nullable(),
+  latitude: z.coerce.number().optional().default(-8.7209),
+  longitude: z.coerce.number().optional().default(115.1691),
+  beds: z.coerce.number().int().optional().default(1),
+  baths: z.coerce.number().optional().default(1),
+  sqft: z.coerce.number().int().optional().default(35),
+  basePrice: z.coerce.number().optional().default(0),
+  imageUrls: z.array(z.string()).optional().default([]),
+  amenities: z.array(z.string()).optional().default([]),
+  cleaningFee: z.coerce.number().optional().default(0),
+  serviceFee: z.coerce.number().optional().default(0),
+  securityDeposit: z.coerce.number().optional().default(0),
+  guests: z.coerce.number().int().optional().default(1),
+  status: z.literal('DRAFT'),
+  currentWizardStep: z.coerce.number().int().optional().default(1),
+  progressPercentage: z.coerce.number().int().optional().default(0),
+  rooms: z.array(z.any()).optional()
+});
+
 export const CalendarBulkUpdateSchema = z.object({
   roomId: z.string().min(1, 'Room ID is required'),
   dates: z.array(z.string()).min(1, 'At least one date is required'),

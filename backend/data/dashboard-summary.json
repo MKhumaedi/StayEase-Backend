@@ -14,5 +14,69 @@
     "netRevenue": 578200,
     "status": "CONFIRMED",
     "updatedAt": "2026-06-25T07:36:39.294Z"
+  },
+  {
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 185000,
+    "netRevenue": 181300,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T04:08:22.661Z"
+  },
+  {
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 185000,
+    "netRevenue": 181300,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T04:08:24.215Z"
+  },
+  {
+    "bookingId": "928df507-74db-4e72-bed6-dda1c3739fb4",
+    "hostId": "778664c0-3dcd-4f15-a774-7f783ca28204",
+    "grossAmount": 781,
+    "netRevenue": 765,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T04:23:50.623Z"
+  },
+  {
+    "bookingId": "928df507-74db-4e72-bed6-dda1c3739fb4",
+    "hostId": "778664c0-3dcd-4f15-a774-7f783ca28204",
+    "grossAmount": 781,
+    "netRevenue": 765,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T04:23:51.860Z"
+  },
+  {
+    "bookingId": "e9a6bef9-8c80-4f41-b1df-ba2b3f9d6c96",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 570000,
+    "netRevenue": 558600,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T06:48:23.036Z"
+  },
+  {
+    "bookingId": "e9a6bef9-8c80-4f41-b1df-ba2b3f9d6c96",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 570000,
+    "netRevenue": 558600,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T06:48:24.262Z"
+  },
+  {
+    "bookingId": "cc0a6bc7-d980-4e7f-a6fd-082d5d4c8c18",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 350000,
+    "netRevenue": 343000,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T07:08:25.056Z"
+  },
+  {
+    "bookingId": "cc0a6bc7-d980-4e7f-a6fd-082d5d4c8c18",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "grossAmount": 350000,
+    "netRevenue": 343000,
+    "status": "CONFIRMED",
+    "updatedAt": "2026-07-15T07:08:26.496Z"
   }
 ]

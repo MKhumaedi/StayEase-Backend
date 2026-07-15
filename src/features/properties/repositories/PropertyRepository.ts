@@ -302,7 +302,12 @@ export class PropertyRepository {
       skip: (page - 1) * limit,
       take: limit,
       orderBy: this.buildOrderBy(sort),
-      include: { category: true }
+      include: { 
+        category: true,
+        rooms: {
+          where: { deletedAt: null }
+        }
+      }
     });
   }
 

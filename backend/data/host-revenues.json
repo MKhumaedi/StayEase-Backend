@@ -1,7 +1,12 @@
 [
   {
     "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
-    "totalRevenue": 1156400,
-    "updatedAt": "2026-06-25T07:36:39.293Z"
+    "totalRevenue": 3322200,
+    "updatedAt": "2026-07-15T07:08:26.495Z"
+  },
+  {
+    "hostId": "778664c0-3dcd-4f15-a774-7f783ca28204",
+    "totalRevenue": 1530.76,
+    "updatedAt": "2026-07-15T04:23:51.860Z"
   }
 ]

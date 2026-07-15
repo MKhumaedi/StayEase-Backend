@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { propertyRepository } from '../repositories/PropertyRepository';
 import { propertyService } from '../services/PropertyService';
-import { PropertySearchSchema, CalendarBulkUpdateSchema, PropertyInputSchema } from '../validations/PropertyValidation';
+import { PropertySearchSchema, CalendarBulkUpdateSchema, PropertyInputSchema, DraftInputSchema } from '../validations/PropertyValidation';
 import { prisma } from '../../../database/prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -360,8 +360,16 @@ export class PropertyController {
     try {
       const tenantId = req.userId;
       if (!tenantId) return res.status(401).json({ error: 'Session required.' }) as any;
-      const validatedData = PropertyInputSchema.parse(req.body);
-      const created = await propertyService.createProperty(tenantId, validatedData);
+      
+      const isDraft = req.body.status === 'DRAFT';
+      const validatedData = isDraft 
+        ? DraftInputSchema.parse(req.body)
+        : PropertyInputSchema.parse(req.body);
+        
+      const created = isDraft
+        ? await propertyService.upsertPropertyDraft(tenantId, validatedData)
+        : await propertyService.createProperty(tenantId, validatedData);
+        
       res.status(201).json({ success: true, property: created });
     } catch (err: any) {
       res.status(400).json({ error: err.message || err });
@@ -390,7 +398,12 @@ export class PropertyController {
       if (!tenantId) return res.status(401).json({ error: 'Unauthorized' }) as any;
       if (!existing) return res.status(404).json({ error: 'Not found' }) as any;
       if (existing.tenantId !== tenantId && role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' }) as any;
-      const validatedData = PropertyInputSchema.partial().parse(req.body);
+      
+      const isDraft = req.body.status === 'DRAFT' || existing.status === 'DRAFT';
+      const validatedData = isDraft
+        ? DraftInputSchema.partial().parse(req.body)
+        : PropertyInputSchema.partial().parse(req.body);
+        
       const updated = await propertyService.updateProperty(req.params.id, validatedData);
       res.json({ success: true, property: updated });
     } catch (err: any) {

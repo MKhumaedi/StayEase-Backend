@@ -114,13 +114,22 @@ export class BookingRepository {
 
   private buildWhere(filters: BookingSearchInput) {
     const where: any = { deletedAt: null };
-    if (filters.status) {
+    
+    if (filters.status && filters.status !== 'ALL') {
       if (filters.status === 'EXPIRED') {
         where.status = BookingStatus.AUTO_EXPIRED;
+      } else if (filters.status === 'LATE_CHECKIN') {
+        where.status = BookingStatus.CONFIRMED;
+        const tzOffsetVal = new Date().getTimezoneOffset() * 60000;
+        const todayStr = new Date(Date.now() - tzOffsetVal).toISOString().split('T')[0];
+        where.startDate = { lt: todayStr };
+      } else if (filters.status === 'WAITING_CHECKIN') {
+        where.status = BookingStatus.CONFIRMED;
       } else {
-        where.status = filters.status;
+        where.status = filters.status as any;
       }
     }
+
     if (filters.guestId) where.guestId = filters.guestId;
     if (filters.tenantId) {
       where.property = { tenantId: filters.tenantId };
@@ -128,12 +137,44 @@ export class BookingRepository {
     if (filters.propertyId) {
       where.propertyId = filters.propertyId;
     }
-    if (filters.startDate) {
-      where.startDate = { gte: filters.startDate };
+
+    const isCheckInOnly = (filters as any).checkInOnly === 'true' || (filters as any).checkInOnly === true;
+    if (isCheckInOnly && (!filters.status || filters.status === 'ALL')) {
+      where.status = {
+        in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN, BookingStatus.CHECKED_OUT, BookingStatus.COMPLETED]
+      };
     }
-    if (filters.endDate) {
-      where.endDate = { lte: filters.endDate };
+
+    if (isCheckInOnly) {
+      if (filters.status !== 'LATE_CHECKIN') {
+        if (filters.startDate && filters.endDate) {
+          where.startDate = { gte: filters.startDate, lte: filters.endDate };
+        } else if (filters.startDate) {
+          where.startDate = { gte: filters.startDate };
+        } else if (filters.endDate) {
+          where.startDate = { lte: filters.endDate };
+        }
+      } else {
+        const tzOffsetVal = new Date().getTimezoneOffset() * 60000;
+        const todayStr = new Date(Date.now() - tzOffsetVal).toISOString().split('T')[0];
+        const merged: any = { lt: todayStr };
+        if (filters.startDate && filters.startDate < todayStr) {
+          merged.gte = filters.startDate;
+        }
+        if (filters.endDate && filters.endDate < todayStr) {
+          merged.lte = filters.endDate;
+        }
+        where.startDate = merged;
+      }
+    } else {
+      if (filters.startDate) {
+        where.startDate = { gte: filters.startDate };
+      }
+      if (filters.endDate) {
+        where.endDate = { lte: filters.endDate };
+      }
     }
+
     if (filters.search) {
       where.OR = [
         { guestName: { contains: filters.search, mode: 'insensitive' } },

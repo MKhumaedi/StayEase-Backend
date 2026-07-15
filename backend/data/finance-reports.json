@@ -14,5 +14,69 @@
     "fee": 11800,
     "net": 578200,
     "createdAt": "2026-06-25T07:36:39.295Z"
+  },
+  {
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 185000,
+    "fee": 3700,
+    "net": 181300,
+    "createdAt": "2026-07-15T04:08:22.663Z"
+  },
+  {
+    "bookingId": "b8835821-19ee-4878-887d-3dcabad890a8",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 185000,
+    "fee": 3700,
+    "net": 181300,
+    "createdAt": "2026-07-15T04:08:24.217Z"
+  },
+  {
+    "bookingId": "928df507-74db-4e72-bed6-dda1c3739fb4",
+    "hostId": "778664c0-3dcd-4f15-a774-7f783ca28204",
+    "amount": 781,
+    "fee": 16,
+    "net": 765,
+    "createdAt": "2026-07-15T04:23:50.624Z"
+  },
+  {
+    "bookingId": "928df507-74db-4e72-bed6-dda1c3739fb4",
+    "hostId": "778664c0-3dcd-4f15-a774-7f783ca28204",
+    "amount": 781,
+    "fee": 16,
+    "net": 765,
+    "createdAt": "2026-07-15T04:23:51.861Z"
+  },
+  {
+    "bookingId": "e9a6bef9-8c80-4f41-b1df-ba2b3f9d6c96",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 570000,
+    "fee": 11400,
+    "net": 558600,
+    "createdAt": "2026-07-15T06:48:23.037Z"
+  },
+  {
+    "bookingId": "e9a6bef9-8c80-4f41-b1df-ba2b3f9d6c96",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 570000,
+    "fee": 11400,
+    "net": 558600,
+    "createdAt": "2026-07-15T06:48:24.263Z"
+  },
+  {
+    "bookingId": "cc0a6bc7-d980-4e7f-a6fd-082d5d4c8c18",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 350000,
+    "fee": 7000,
+    "net": 343000,
+    "createdAt": "2026-07-15T07:08:25.058Z"
+  },
+  {
+    "bookingId": "cc0a6bc7-d980-4e7f-a6fd-082d5d4c8c18",
+    "hostId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "amount": 350000,
+    "fee": 7000,
+    "net": 343000,
+    "createdAt": "2026-07-15T07:08:26.496Z"
   }
 ]

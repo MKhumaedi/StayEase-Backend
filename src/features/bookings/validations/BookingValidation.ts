@@ -26,7 +26,8 @@ export const BookingSearchSchema = z.object({
   guestId: z.string().optional(),
   tenantId: z.string().optional(),
   checkoutRequested: z.union([z.string(), z.boolean()]).optional(),
-  checkedOutAtNull: z.union([z.string(), z.boolean()]).optional()
+  checkedOutAtNull: z.union([z.string(), z.boolean()]).optional(),
+  checkInOnly: z.union([z.string(), z.boolean()]).optional()
 });
 
 export type BookingSearchInput = z.infer<typeof BookingSearchSchema>;
