@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { propertyRepository } from '../repositories/PropertyRepository';
+import { propertyRepository, parseRoomQuantity, calculateRoomActiveBookings } from '../repositories/PropertyRepository';
 import { propertyService } from '../services/PropertyService';
 import { PropertySearchSchema, CalendarBulkUpdateSchema, PropertyInputSchema, DraftInputSchema } from '../validations/PropertyValidation';
 import { prisma } from '../../../database/prisma';
@@ -302,6 +302,79 @@ export class PropertyController {
       if (!allowed) return res.status(403).json({ error: 'Access denied: belongs to another host.' }) as any;
       const rooms = await propertyRepository.findRoomsByPropertyId(property.id);
 
+      // Extract check-in / check-out dates from request parameters or fallback to frontend defaults for dynamic room status
+      const checkInStr = (req.query.checkIn as string) || (req.query.start as string) || (req.query.startDate as string) || '2026-10-12';
+      let checkOutStr = (req.query.checkOut as string) || (req.query.end as string) || (req.query.endDate as string);
+      
+      if (!checkOutStr) {
+        const duration = parseInt(req.query.duration as string) || 3;
+        const d = new Date(checkInStr);
+        d.setDate(d.getDate() + duration);
+        try {
+          checkOutStr = d.toISOString().split('T')[0];
+        } catch (e) {
+          checkOutStr = '2026-10-15';
+        }
+      }
+
+      // Check each room's availability for these dates and dynamically enrich the status
+      const enrichedRooms = await Promise.all(rooms.map(async (room) => {
+        let isAvailable = true;
+
+        // 1. Check if blocked in RoomAvailability
+        const blocked = await prisma.roomAvailability.findFirst({
+          where: {
+            roomId: room.id,
+            isBlocked: true,
+            deletedAt: null,
+            date: { gte: checkInStr, lt: checkOutStr }
+          }
+        });
+
+        // 2. Count active bookings overlapping the dates
+        const activeBookingCount = await calculateRoomActiveBookings(
+          room.id,
+          checkInStr,
+          checkOutStr
+        );
+
+        const quantity = parseRoomQuantity(room);
+        const bookedRooms = activeBookingCount;
+        const remainingRooms = Math.max(0, quantity - bookedRooms);
+
+        if (blocked || remainingRooms <= 0) {
+          isAvailable = false;
+        }
+
+        const dbStatus = room.status;
+        const isBlocked = !!blocked;
+        const isManuallyDisabled = (dbStatus as string) === 'Maintenance' || (dbStatus as string) === 'Unavailable' || dbStatus === 'UNAVAILABLE' || isBlocked;
+
+        let availabilityStatus = 'Tersedia';
+        if (isManuallyDisabled) {
+          availabilityStatus = 'Tidak Tersedia';
+        } else if (remainingRooms === 0) {
+          availabilityStatus = 'Penuh';
+        } else if (remainingRooms <= 0.2 * quantity) {
+          availabilityStatus = 'Hampir Habis';
+        } else {
+          availabilityStatus = 'Tersedia';
+        }
+
+        return {
+          ...room,
+          dbStatus,
+          quantity,
+          bookedRooms,
+          remainingRooms,
+          activeBookingCount,
+          isBlocked,
+          isManuallyDisabled,
+          availabilityStatus,
+          status: isAvailable ? 'Available' : 'Occupied'
+        };
+      }));
+
       // Dynamically calculate rating and reviewCount from the actual Review table for consistency and pure source of truth
       const aggregate = await prisma.review.aggregate({
         where: { propertyId: property.id, deletedAt: null },
@@ -320,7 +393,7 @@ export class PropertyController {
         peakSeasonRates: peakRates
       };
 
-      res.json({ property: enrichedProperty, rooms });
+      res.json({ property: enrichedProperty, rooms: enrichedRooms });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

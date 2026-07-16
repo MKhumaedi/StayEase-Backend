@@ -1,5 +1,36 @@
 import { prisma } from '../../../database/prisma';
 
+export function parseRoomQuantity(room: any): number {
+  let quantity = 1;
+  try {
+    if (room.floor && room.floor.trim().startsWith('{')) {
+      const parsed = JSON.parse(room.floor);
+      if (parsed && typeof parsed.quantity === 'number') {
+        quantity = parsed.quantity;
+      } else if (parsed && parsed.quantity) {
+        const qty = parseInt(parsed.quantity);
+        if (!isNaN(qty)) quantity = qty;
+      }
+    }
+  } catch (e) {}
+  return quantity;
+}
+
+export async function calculateRoomActiveBookings(roomId: string, checkIn: string, checkOut: string): Promise<number> {
+  const count = await prisma.booking.count({
+    where: {
+      roomId,
+      deletedAt: null,
+      status: { in: ['CONFIRMED', 'CHECKED_IN', 'WAITING_PAYMENT'] },
+      AND: [
+        { startDate: { lt: checkOut } },
+        { endDate: { gt: checkIn } }
+      ]
+    }
+  });
+  return count;
+}
+
 export class PropertyRepository {
   async findById(id: string) {
     return prisma.property.findFirst({
@@ -219,11 +250,7 @@ export class PropertyRepository {
 
     // Capacity and check-in date availability checks
     let stayDates: string[] = [];
-    let requestedStartDate: string | undefined;
-    let requestedEndDate: string | undefined;
-
     if (f.checkIn && f.checkIn.trim() !== '') {
-      requestedStartDate = f.checkIn;
       const duration = f.duration || 1;
       const date = new Date(f.checkIn);
       const dates: string[] = [];
@@ -236,9 +263,6 @@ export class PropertyRepository {
       }
       if (dates.length > 0) {
         stayDates = dates;
-        try {
-          requestedEndDate = date.toISOString().split('T')[0];
-        } catch (e) {}
       }
     }
 
@@ -259,19 +283,6 @@ export class PropertyRepository {
           }
         }
       });
-
-      if (requestedStartDate && requestedEndDate) {
-        roomConditions.NOT.push({
-          bookings: {
-            some: {
-              status: { not: 'CANCELLED' },
-              startDate: { lt: requestedEndDate },
-              endDate: { gt: requestedStartDate },
-              deletedAt: null
-            }
-          }
-        });
-      }
     }
 
     if ((f.guests !== undefined && f.guests > 0) || stayDates.length > 0) {
@@ -299,8 +310,6 @@ export class PropertyRepository {
   private async fetchPage(where: any, page: number, limit: number, sort?: string) {
     return prisma.property.findMany({
       where,
-      skip: (page - 1) * limit,
-      take: limit,
       orderBy: this.buildOrderBy(sort),
       include: { 
         category: true,
@@ -328,9 +337,126 @@ export class PropertyRepository {
     const page = filters.page || 1;
     const limit = filters.limit || 10;
     const where = this.buildQueryWhere(filters);
-    const data = await this.fetchPage(where, page, limit, filters.sort);
-    const total = await prisma.property.count({ where });
-    return { data, total };
+    
+    // Fetch all matching properties from database to filter based on check-in date and exact available inventory
+    const allMatchedProperties = await prisma.property.findMany({
+      where,
+      orderBy: this.buildOrderBy(filters.sort),
+      include: { 
+        category: true,
+        rooms: {
+          where: { deletedAt: null }
+        }
+      }
+    });
+
+    // Parse filters
+    let requestedStartDate: string | undefined = filters.checkIn;
+    let requestedEndDate: string | undefined;
+    if (requestedStartDate && requestedStartDate.trim() !== '') {
+      const duration = filters.duration || 1;
+      const date = new Date(requestedStartDate);
+      date.setDate(date.getDate() + duration);
+      try {
+        requestedEndDate = date.toISOString().split('T')[0];
+      } catch (e) {}
+    }
+
+    const filteredProperties: any[] = [];
+
+    for (const property of allMatchedProperties) {
+      let hasAtLeastOneMatchingRoom = false;
+      const enrichedRooms: any[] = [];
+
+      for (const room of property.rooms) {
+        // Filter by capacity
+        if (filters.guests !== undefined && filters.guests > 0) {
+          if (room.capacity < filters.guests) {
+            continue;
+          }
+        }
+
+        let isAvailable = true;
+        let activeBookingCount = 0;
+        const quantity = parseRoomQuantity(room);
+        let blocked = null;
+
+        if (requestedStartDate && requestedEndDate) {
+          // 1. Check if blocked in RoomAvailability
+          blocked = await prisma.roomAvailability.findFirst({
+            where: {
+              roomId: room.id,
+              isBlocked: true,
+              deletedAt: null,
+              date: { gte: requestedStartDate, lt: requestedEndDate }
+            }
+          });
+
+          // 2. Count active bookings overlapping the dates
+          activeBookingCount = await calculateRoomActiveBookings(
+            room.id,
+            requestedStartDate,
+            requestedEndDate
+          );
+
+          if (blocked || (quantity - activeBookingCount) <= 0) {
+            isAvailable = false;
+          }
+        }
+
+        const dbStatus = room.status;
+        const isBlocked = !!blocked;
+        const isManuallyDisabled = (dbStatus as string) === 'Maintenance' || (dbStatus as string) === 'Unavailable' || dbStatus === 'UNAVAILABLE' || isBlocked;
+
+        const bookedRooms = activeBookingCount;
+        const remainingRooms = Math.max(0, quantity - bookedRooms);
+
+        let availabilityStatus = 'Tersedia';
+        if (isManuallyDisabled) {
+          availabilityStatus = 'Tidak Tersedia';
+        } else if (remainingRooms === 0) {
+          availabilityStatus = 'Penuh';
+        } else if (remainingRooms <= 0.2 * quantity) {
+          availabilityStatus = 'Hampir Habis';
+        } else {
+          availabilityStatus = 'Tersedia';
+        }
+
+        const updatedStatus = isAvailable ? 'Available' : 'Occupied';
+        
+        enrichedRooms.push({
+          ...room,
+          dbStatus,
+          quantity,
+          bookedRooms,
+          remainingRooms,
+          activeBookingCount,
+          isBlocked,
+          isManuallyDisabled,
+          availabilityStatus,
+          status: updatedStatus
+        });
+
+        if (isAvailable) {
+          hasAtLeastOneMatchingRoom = true;
+        }
+      }
+
+      // Keep property if there's no check-in/guests filters OR if we found at least one matching available room
+      const needsRoomFiltering = (filters.guests !== undefined && filters.guests > 0) || (requestedStartDate !== undefined && requestedStartDate.trim() !== '');
+      if (!needsRoomFiltering || hasAtLeastOneMatchingRoom) {
+        filteredProperties.push({
+          ...property,
+          rooms: enrichedRooms
+        });
+      }
+    }
+
+    const total = filteredProperties.length;
+    const startIndex = (page - 1) * limit;
+    const paginatedData = filteredProperties.slice(startIndex, startIndex + limit);
+
+    return { data: paginatedData, total };
   }
 
   async save(prop: any) {

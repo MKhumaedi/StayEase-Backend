@@ -1,6 +1,6 @@
 import { bookingRepository } from '../repositories/BookingRepository';
 import { propertyService } from '../../properties/services/PropertyService';
-import { propertyRepository } from '../../properties/repositories/PropertyRepository';
+import { propertyRepository, parseRoomQuantity, calculateRoomActiveBookings } from '../../properties/repositories/PropertyRepository';
 import { BookingStatus } from '@prisma/client';
 import { prisma } from '../../../database/prisma';
 import { NotificationEngine } from '../../notifications/services/NotificationEngine';
@@ -18,10 +18,16 @@ export class BookingService {
   }
 
   private async checkOverlap(roomId: string, start: string, end: string, excludeId?: string): Promise<void> {
-    const overlapping = await prisma.booking.findFirst({
+    const room = await prisma.room.findUnique({
+      where: { id: roomId }
+    });
+    if (!room) throw new Error('Room not found');
+
+    const quantity = parseRoomQuantity(room);
+    const activeBookingCount = await prisma.booking.count({
       where: {
         roomId,
-        status: { notIn: [BookingStatus.CANCELLED, BookingStatus.AUTO_EXPIRED] },
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN] },
         deletedAt: null,
         NOT: excludeId ? { id: excludeId } : undefined,
         AND: [
@@ -30,7 +36,10 @@ export class BookingService {
         ]
       }
     });
-    if (overlapping) throw new Error('This room is already booked for the selected dates.');
+
+    if (activeBookingCount >= quantity) {
+      throw new Error('This room is already fully booked for the selected dates.');
+    }
   }
 
   private async checkBlocked(roomId: string, start: string, end: string): Promise<void> {

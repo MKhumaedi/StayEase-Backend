@@ -2,6 +2,125 @@ import { prisma } from '../../../database/prisma';
 import { BookingStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { getMaintenanceRequests } from '../../../database/housekeeping_maintenance';
+import { getMidtransOrderId, midtransService } from '../../payments/services/MidtransService';
+
+async function resolvePaymentDetails(b: any): Promise<{ paymentMethod: string; paymentStatus: string }> {
+  // If no successful payment exists, display "-"
+  const isPaid = ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(b.status);
+  if (!isPaid) {
+    return { paymentMethod: '-', paymentStatus: '-' };
+  }
+
+  // Parse b.paymentProof?.proofUrl
+  let parsed: any = null;
+  const proofUrl = b.paymentProof?.proofUrl || '';
+  if (proofUrl.trim().startsWith('{')) {
+    try {
+      parsed = JSON.parse(proofUrl);
+    } catch (e) {}
+  }
+
+  // Determine actual payment provider
+  let rawProvider = '';
+  let rawStatus = '';
+
+  // 1. Check if it's Midtrans
+  const isMidtrans = proofUrl.includes('midtrans') || (parsed && parsed.method === 'midtrans');
+  if (isMidtrans) {
+    rawStatus = 'PAID'; // Default status for successful Midtrans payment
+    
+    // Attempt to read from midtrans status API to get the actual payment provider and status
+    try {
+      const orderId = getMidtransOrderId(b.id) || b.bookingCode;
+      if (orderId) {
+        const payload = await midtransService.getStatusFromMidtrans(orderId);
+        if (payload) {
+          // Map payment status from Midtrans payload
+          if (payload.transaction_status === 'settlement' || payload.transaction_status === 'capture') {
+            rawStatus = 'PAID';
+          } else if (payload.transaction_status === 'pending') {
+            rawStatus = 'PENDING';
+          } else if (payload.transaction_status === 'deny' || payload.transaction_status === 'cancel' || payload.transaction_status === 'expire') {
+            rawStatus = 'CANCELLED';
+          }
+
+          // Map payment provider from Midtrans payload
+          const paymentType = payload.payment_type;
+          if (paymentType === 'credit_card') {
+            rawProvider = 'Credit Card';
+          } else if (paymentType === 'gopay') {
+            rawProvider = 'GoPay';
+          } else if (paymentType === 'shopeepay') {
+            rawProvider = 'ShopeePay';
+          } else if (paymentType === 'qris') {
+            rawProvider = 'QRIS';
+          } else if (paymentType === 'bank_transfer' || paymentType === 'echannel') {
+            const bank = payload.bank || (payload.va_numbers && payload.va_numbers[0] && payload.va_numbers[0].bank);
+            if (bank) {
+              const bUpper = bank.toUpperCase();
+              if (bUpper === 'BCA') {
+                rawProvider = 'Virtual Account BCA';
+              } else if (bUpper === 'BNI') {
+                rawProvider = 'Virtual Account BNI';
+              } else if (bUpper === 'MANDIRI' || bUpper === 'PERMATA' || paymentType === 'echannel') {
+                rawProvider = 'Virtual Account Mandiri';
+              } else {
+                rawProvider = `Virtual Account ${bUpper}`;
+              }
+            } else {
+              rawProvider = 'Bank Transfer';
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[ExportService] Error fetching Midtrans status:', err);
+    }
+
+    if (!rawProvider) {
+      // Fallback if Midtrans fetch failed
+      rawProvider = 'Midtrans SNAP';
+    }
+  } else if (b.paymentProof) {
+    // 2. Manual Transfer
+    rawProvider = 'Bank Transfer';
+    rawStatus = parsed?.status || 'PENDING';
+    if (rawStatus === 'APPROVED') {
+      rawStatus = 'PAID';
+    }
+  }
+
+  // Final mapping based on the requirements/examples
+  let mappedMethod = '-';
+  if (rawProvider === 'Midtrans SNAP') mappedMethod = 'Midtrans SNAP';
+  else if (rawProvider === 'Bank Transfer') mappedMethod = 'Manual Transfer';
+  else if (rawProvider === 'QRIS') mappedMethod = 'QRIS';
+  else if (rawProvider === 'GoPay') mappedMethod = 'GoPay';
+  else if (rawProvider === 'ShopeePay') mappedMethod = 'ShopeePay';
+  else if (rawProvider === 'Virtual Account BCA') mappedMethod = 'BCA Virtual Account';
+  else if (rawProvider === 'Virtual Account BNI') mappedMethod = 'BNI Virtual Account';
+  else if (rawProvider === 'Virtual Account Mandiri') mappedMethod = 'Mandiri Virtual Account';
+  else if (rawProvider === 'Credit Card') mappedMethod = 'Credit Card';
+  else if (rawProvider) {
+    // General / Dynamic mapping
+    const lower = rawProvider.toLowerCase();
+    if (lower.includes('qris')) mappedMethod = 'QRIS';
+    else if (lower.includes('gopay')) mappedMethod = 'GoPay';
+    else if (lower.includes('shopeepay')) mappedMethod = 'ShopeePay';
+    else if (lower.includes('credit card') || lower.includes('credit_card')) mappedMethod = 'Credit Card';
+    else if (lower.includes('bca')) mappedMethod = 'BCA Virtual Account';
+    else if (lower.includes('bni')) mappedMethod = 'BNI Virtual Account';
+    else if (lower.includes('mandiri')) mappedMethod = 'Mandiri Virtual Account';
+    else if (lower.includes('midtrans')) mappedMethod = 'Midtrans SNAP';
+    else if (lower.includes('bank') || lower.includes('manual')) mappedMethod = 'Manual Transfer';
+    else mappedMethod = rawProvider;
+  }
+
+  return {
+    paymentMethod: mappedMethod,
+    paymentStatus: rawStatus || 'PENDING'
+  };
+}
 
 export class ExportService {
   async generateReport(
@@ -148,12 +267,11 @@ export class ExportService {
       numberColumns = [7];
       dateColumns = [0, 5, 6];
 
-      rows = bookings.map(b => {
+      rows = await Promise.all(bookings.map(async (b) => {
         const cleaningFee = Number(b.property?.cleaningFee ?? 0);
         const serviceFee = Number(b.property?.serviceFee ?? 0);
         
         const isPaid = ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(b.status);
-        const payStatus = isPaid ? 'PAID' : (b.status === 'CANCELLED' ? 'CANCELLED' : 'PENDING');
         const totalPaid = isPaid ? Number(b.totalAmount) : 0;
         
         // subtotal + tax = totalAmount - cleaningFee - serviceFee
@@ -163,14 +281,7 @@ export class ExportService {
         const tax = Math.max(0, rawTotal - cleaningFee - serviceFee - subtotal);
         const revenue = isPaid ? subtotal : 0;
         
-        let paymentMethod = 'Unpaid';
-        if (b.status !== 'WAITING_PAYMENT' && b.status !== 'CANCELLED') {
-          if (b.paymentProof?.proofUrl) {
-            paymentMethod = b.paymentProof.proofUrl.startsWith('midtrans://') ? 'Midtrans' : 'Manual Transfer';
-          } else {
-            paymentMethod = 'System Credit';
-          }
-        }
+        const { paymentMethod, paymentStatus } = await resolvePaymentDetails(b);
 
         return [
           formatDate(b.createdAt),
@@ -182,14 +293,14 @@ export class ExportService {
           b.endDate,
           b.nights,
           paymentMethod,
-          payStatus,
+          paymentStatus,
           revenue,
           isPaid ? cleaningFee : 0,
           isPaid ? serviceFee : 0,
           isPaid ? tax : 0,
           totalPaid
         ];
-      });
+      }));
 
     } else if (reportType === 'booking') {
       title = 'Booking volume & Trends Report';

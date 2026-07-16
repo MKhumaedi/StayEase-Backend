@@ -66,6 +66,7 @@ model User {
   passwordResets     PasswordReset[]
   properties         Property[]
   favorites          Favorite[]
+  withdrawals        Withdrawal[]
 
   @@index([email])
   @@index([role])
@@ -393,5 +394,39 @@ model Favorite {
   @@index([userId])
   @@index([propertyId])
 }
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  PAID
+  REJECTED
+  FAILED
+}
+
+model Withdrawal {
+  id              String           @id @default(uuid())
+  tenantId        String
+  tenant          User             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  amount          Decimal          @db.Decimal(10, 2)
+  fee             Decimal          @db.Decimal(10, 2)
+  netAmount       Decimal          @db.Decimal(10, 2)
+  status          WithdrawalStatus @default(PENDING)
+  bankName        String
+  accountName     String
+  accountNumber   String
+  referenceNumber String?
+  requestedAt     DateTime         @default(now())
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  processedBy     String?
+  notes           String?          @db.Text
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
 
 

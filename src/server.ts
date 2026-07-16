@@ -38,6 +38,7 @@ import {
 } from './database/housekeeping_maintenance';
 import uploadRouter from './features/uploads/routes/UploadRoutes';
 import tenantPaymentsRouter from './features/tenant-payments/routes/TenantPaymentsRoutes';
+import withdrawalRouter from './features/withdrawals/routes/WithdrawalRoutes';
 import { IdempotencyMiddleware, DuplicateSubmissionGuard, RequestGuard } from './protection';
 
 async function setupDatabaseTriggers() {
@@ -236,6 +237,9 @@ async function startServer() {
 
   // API - Tenant payments routes
   app.use('/api/tenant/payments', tenantPaymentsRouter);
+
+  // API - Withdrawal routes
+  app.use('/api/withdrawals', withdrawalRouter);
 
   // Support local uploads pathing dynamically
   const getUploadDir = () => {
