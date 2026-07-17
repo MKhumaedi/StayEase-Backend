@@ -267,40 +267,81 @@ export class ExportService {
       numberColumns = [7];
       dateColumns = [0, 5, 6];
 
-      rows = await Promise.all(bookings.map(async (b) => {
+      const allMappedRows = await Promise.all(bookings.map(async (b) => {
         const cleaningFee = Number(b.property?.cleaningFee ?? 0);
         const serviceFee = Number(b.property?.serviceFee ?? 0);
         
-        const isPaid = ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(b.status);
-        const totalPaid = isPaid ? Number(b.totalAmount) : 0;
+        const isPaidStatus = ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(b.status);
+        const totalPaid = isPaidStatus ? Number(b.totalAmount) : 0;
         
         // subtotal + tax = totalAmount - cleaningFee - serviceFee
         // subtotal = (totalAmount - cleaningFee - serviceFee) / 1.1
         const rawTotal = Number(b.totalAmount);
         const subtotal = Math.max(0, Math.round((rawTotal - cleaningFee - serviceFee) / 1.1));
         const tax = Math.max(0, rawTotal - cleaningFee - serviceFee - subtotal);
-        const revenue = isPaid ? subtotal : 0;
+        const revenue = isPaidStatus ? subtotal : 0;
         
         const { paymentMethod, paymentStatus } = await resolvePaymentDetails(b);
 
-        return [
-          formatDate(b.createdAt),
-          b.bookingCode,
-          b.guestName,
-          b.property?.name || 'N/A',
-          b.room?.name || 'N/A',
-          b.startDate,
-          b.endDate,
-          b.nights,
-          paymentMethod,
+        return {
+          row: [
+            formatDate(b.createdAt),
+            b.bookingCode,
+            b.guestName,
+            b.property?.name || 'N/A',
+            b.room?.name || 'N/A',
+            b.startDate,
+            b.endDate,
+            b.nights,
+            paymentMethod,
+            paymentStatus,
+            revenue,
+            isPaidStatus ? cleaningFee : 0,
+            isPaidStatus ? serviceFee : 0,
+            isPaidStatus ? tax : 0,
+            totalPaid
+          ],
+          bookingStatus: b.status as string,
           paymentStatus,
+          paymentMethod,
           revenue,
-          isPaid ? cleaningFee : 0,
-          isPaid ? serviceFee : 0,
-          isPaid ? tax : 0,
           totalPaid
-        ];
+        };
       }));
+
+      // Filter to only include successful revenue transactions
+      const filteredMappedRows = allMappedRows.filter(item => {
+        // EXPORT FILTER:
+        // Only include bookings where Payment Status = PAID OR Reservation Status = COMPLETED OR Reservation Status = CHECKED_OUT
+        const hasValidStatus = item.paymentStatus === 'PAID' || 
+                               item.bookingStatus === 'COMPLETED' || 
+                               item.bookingStatus === 'CHECKED_OUT';
+        if (!hasValidStatus) return false;
+
+        // Never export: PENDING, WAITING_PAYMENT, FAILED, EXPIRED, CANCELLED, REFUNDED, REJECTED, NO_PAYMENT, Draft reservations
+        const forbiddenBookingStatuses = [
+          'WAITING_PAYMENT', 'CANCELLED', 'AUTO_EXPIRED'
+        ];
+        if (forbiddenBookingStatuses.includes(item.bookingStatus)) return false;
+
+        const forbiddenPaymentStatuses = [
+          'PENDING', 'FAILED', 'EXPIRED', 'CANCELLED', 'REFUNDED', 'REJECTED', 'NO_PAYMENT', '-'
+        ];
+        if (forbiddenPaymentStatuses.includes(item.paymentStatus)) return false;
+
+        // REVENUE:
+        // Only export rows where revenue has actually been recognized and is greater than zero.
+        // Exclude rows with Revenue = 0, Total Paid = 0.
+        if (item.revenue <= 0 || item.totalPaid <= 0) return false;
+
+        // PAYMENT METHOD:
+        // Only display valid payment methods. Do not export "-"
+        if (!item.paymentMethod || item.paymentMethod === '-') return false;
+
+        return true;
+      });
+
+      rows = filteredMappedRows.map(item => item.row);
 
     } else if (reportType === 'booking') {
       title = 'Booking volume & Trends Report';
@@ -503,9 +544,46 @@ export class ExportService {
         }
         return str;
       };
+
+      const exportRows = [...rows];
+      if (reportType === 'revenue') {
+        let totalNights = 0;
+        let totalRevenueSum = 0;
+        let totalCleaningFeeSum = 0;
+        let totalServiceFeeSum = 0;
+        let totalTaxSum = 0;
+        let totalPaidSum = 0;
+
+        rows.forEach(r => {
+          totalNights += Number(r[7] || 0);
+          totalRevenueSum += Number(r[10] || 0);
+          totalCleaningFeeSum += Number(r[11] || 0);
+          totalServiceFeeSum += Number(r[12] || 0);
+          totalTaxSum += Number(r[13] || 0);
+          totalPaidSum += Number(r[14] || 0);
+        });
+
+        exportRows.push([
+          'TOTAL',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          totalNights,
+          '',
+          '',
+          totalRevenueSum,
+          totalCleaningFeeSum,
+          totalServiceFeeSum,
+          totalTaxSum,
+          totalPaidSum
+        ]);
+      }
       
       const headerLine = headers.map(escapeCell).join(',');
-      const rowLines = rows.map(r => r.map(escapeCell).join(','));
+      const rowLines = exportRows.map(r => r.map(escapeCell).join(','));
       const csvContent = [headerLine, ...rowLines].join('\r\n');
       
       const filename = `${reportType}_report_${period}_${Date.now()}.csv`;
@@ -641,6 +719,96 @@ export class ExportService {
         row.height = 22;
       });
 
+      // Add Totals Row for Revenue report
+      if (reportType === 'revenue') {
+        let totalNights = 0;
+        let totalRevenueSum = 0;
+        let totalCleaningFeeSum = 0;
+        let totalServiceFeeSum = 0;
+        let totalTaxSum = 0;
+        let totalPaidSum = 0;
+
+        rows.forEach(r => {
+          totalNights += Number(r[7] || 0);
+          totalRevenueSum += Number(r[10] || 0);
+          totalCleaningFeeSum += Number(r[11] || 0);
+          totalServiceFeeSum += Number(r[12] || 0);
+          totalTaxSum += Number(r[13] || 0);
+          totalPaidSum += Number(r[14] || 0);
+        });
+
+        const totalRowIndex = headerRowNumber + 1 + rows.length;
+        const totalRow = worksheet.getRow(totalRowIndex);
+        
+        // Merge cells from A to G (1 to 7)
+        worksheet.mergeCells(`A${totalRowIndex}:G${totalRowIndex}`);
+        const labelCell = totalRow.getCell(1);
+        labelCell.value = 'TOTAL';
+        labelCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E1B4B' } };
+        labelCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Nights (Col 8)
+        const nightsCell = totalRow.getCell(8);
+        nightsCell.value = totalNights;
+        nightsCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        nightsCell.numFmt = '#,##0';
+        nightsCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Empty cells for 9 and 10
+        totalRow.getCell(9).value = '';
+        totalRow.getCell(10).value = '';
+        
+        // Revenue (Col 11)
+        const revCell = totalRow.getCell(11);
+        revCell.value = totalRevenueSum;
+        revCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        revCell.numFmt = '"Rp"#,##0';
+        revCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Cleaning Fee (Col 12)
+        const cleanCell = totalRow.getCell(12);
+        cleanCell.value = totalCleaningFeeSum;
+        cleanCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        cleanCell.numFmt = '"Rp"#,##0';
+        cleanCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Service Fee (Col 13)
+        const servCell = totalRow.getCell(13);
+        servCell.value = totalServiceFeeSum;
+        servCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        servCell.numFmt = '"Rp"#,##0';
+        servCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Tax (Col 14)
+        const taxCell = totalRow.getCell(14);
+        taxCell.value = totalTaxSum;
+        taxCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        taxCell.numFmt = '"Rp"#,##0';
+        taxCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Total Paid (Col 15)
+        const paidCell = totalRow.getCell(15);
+        paidCell.value = totalPaidSum;
+        paidCell.font = { name: 'Segoe UI', size: 10, bold: true };
+        paidCell.numFmt = '"Rp"#,##0';
+        paidCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        // Apply styling / border to the entire total row
+        for (let col = 1; col <= 15; col++) {
+          const cell = totalRow.getCell(col);
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FF1E1B4B' } },
+            bottom: { style: 'double', color: { argb: 'FF1E1B4B' } }
+          };
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF1F5F9' } // light slate gray background
+          };
+        }
+        totalRow.height = 24;
+      }
+
       // Auto Column Width Calculation
       worksheet.columns.forEach((column) => {
         let maxLen = 0;
@@ -655,7 +823,7 @@ export class ExportService {
         column.width = Math.max(maxLen + 4, 13); // Margins + Minimum Width
       });
 
-      const buffer = await workbook.xlsx.writeBuffer() as unknown as Buffer;
+      const buffer = await workbook.xlsx.writeBuffer() as Buffer;
       const filename = `${reportType}_report_${period}_${Date.now()}.xlsx`;
 
       return {
