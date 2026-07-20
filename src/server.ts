@@ -151,12 +151,11 @@ async function setupDatabaseTriggers() {
   }
 }
 
-// Inisialisasi Express secara top-level
-const app = express();
-
-async function initApp() {
+async function startServer() {
+  const app = express();
   let PORT = Number(process.env.PORT || 5000);
   
+  // Hardened port allocation: prevent dev conflicts when concurrently starts on PORT=3000
   if (process.env.NODE_ENV !== 'production' && PORT === 3000) {
     PORT = 5000;
   }
@@ -167,6 +166,7 @@ async function initApp() {
   app.use((req, res, next) => {
     const origin = req.headers.origin || '';
     
+    // Parse allowed origins from environment
     const configuredOrigins = process.env.CORS_ORIGIN 
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
       : [];
@@ -214,10 +214,8 @@ async function initApp() {
     });
   });
 
-  // Set up SQL triggers (Hanya dijalankan jika BUKAN di Vercel untuk mencegah cold-start timeout)
-  if (!process.env.VERCEL) {
-    await setupDatabaseTriggers();
-  }
+  // Set up SQL triggers and sync state prior to servicing traffic
+  await setupDatabaseTriggers();
 
   // API - Auth routes
   app.use('/api/auth', authRouter);
@@ -245,7 +243,6 @@ async function initApp() {
 
   // Support local uploads pathing dynamically
   const getUploadDir = () => {
-    if (process.env.VERCEL) return '/tmp';
     if (process.env.UPLOAD_DIR) {
       const customPath = process.env.UPLOAD_DIR;
       const p = path.isAbsolute(customPath) ? customPath : path.resolve(process.cwd(), customPath);
@@ -405,6 +402,7 @@ async function initApp() {
 
       if (!name) return res.status(400).json({ error: 'Rule name is required.' });
 
+      // Identify all dates this rule is being applied to
       let datesToCheck: string[] = [];
       if (applyMode === 'RANGE') {
         if (!startDate || !endDate) return res.status(400).json({ error: 'Start and end dates are required for range mode.' });
@@ -414,11 +412,12 @@ async function initApp() {
           return res.status(400).json({ error: 'At least one selected date is required.' });
         }
         datesToCheck = dates;
-      } else {
+      } else { // SINGLE
         if (!startDate) return res.status(400).json({ error: 'Target date is required.' });
         datesToCheck = [startDate];
       }
 
+      // Check overlap for every single targeted date against active rules
       const existing = await prisma.peakSeasonRate.findMany({
         where: { propertyId, deletedAt: null, isActive: true }
       });
@@ -436,6 +435,7 @@ async function initApp() {
         }
       }
 
+      // Create PeakSeasonRate entries in database
       const recordsToCreate = [];
       const cleanRoomId = (roomId === '' || roomId === 'all' || roomId === 'null' || !roomId) ? null : roomId;
 
@@ -471,6 +471,7 @@ async function initApp() {
         data: recordsToCreate
       });
 
+      // If Booking Closed is checked, block in RoomAvailability
       if (isClosed) {
         const roomsToBlock = cleanRoomId ? [{ id: cleanRoomId }] : await prisma.room.findMany({ where: { propertyId, deletedAt: null } });
         for (const r of roomsToBlock) {
@@ -507,14 +508,17 @@ async function initApp() {
 
       if (!name) return res.status(400).json({ error: 'Rule name is required.' });
 
+      // Temporary soft delete old rules under this oldName to avoid false self-overlap matches
       await prisma.peakSeasonRate.updateMany({
         where: { propertyId, name: oldName, deletedAt: null },
         data: { deletedAt: new Date() }
       });
 
+      // Gather dates for overlap check
       let datesToCheck: string[] = [];
       if (applyMode === 'RANGE') {
         if (!startDate || !endDate) {
+          // Restore old rules
           await prisma.peakSeasonRate.updateMany({
             where: { propertyId, name: oldName, deletedAt: { not: null } },
             data: { deletedAt: null }
@@ -524,6 +528,7 @@ async function initApp() {
         datesToCheck = getDatesBetweenLocal(startDate, endDate);
       } else if (applyMode === 'MULTIPLE') {
         if (!dates || !Array.isArray(dates) || dates.length === 0) {
+          // Restore old rules
           await prisma.peakSeasonRate.updateMany({
             where: { propertyId, name: oldName, deletedAt: { not: null } },
             data: { deletedAt: null }
@@ -533,6 +538,7 @@ async function initApp() {
         datesToCheck = dates;
       } else {
         if (!startDate) {
+          // Restore old rules
           await prisma.peakSeasonRate.updateMany({
             where: { propertyId, name: oldName, deletedAt: { not: null } },
             data: { deletedAt: null }
@@ -553,6 +559,7 @@ async function initApp() {
           return inRange && sameRoom;
         });
         if (match) {
+          // Overlap detected! Rollback deletion of old rules by restoring them
           await prisma.peakSeasonRate.updateMany({
             where: { propertyId, name: oldName, deletedAt: { not: null } },
             data: { deletedAt: null }
@@ -563,6 +570,7 @@ async function initApp() {
         }
       }
 
+      // Overlap passed! Old records soft deleted can be safely left deleted, and we create the new records
       const recordsToCreate = [];
       const cleanRoomId = (roomId === '' || roomId === 'all' || roomId === 'null' || !roomId) ? null : roomId;
 
@@ -787,7 +795,7 @@ async function initApp() {
   });
 
   // Serve production client build statically if present
-  if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
+  if (process.env.NODE_ENV === 'production') {
     const possibleDistPaths = [
       path.join(process.cwd(), 'frontend/dist'),
       path.join(process.cwd(), 'dist'),
@@ -833,18 +841,12 @@ async function initApp() {
     });
   });
 
-  // Hanya jalankan app.listen di environment lokal
-  if (!process.env.VERCEL) {
-    app.listen(Number(PORT), '0.0.0.0', () => {
-      console.log(`Server running at http://0.0.0.0:${PORT}`);
-    });
-  }
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Server running at http://0.0.0.0:${PORT}`);
+  });
 }
 
-// Inisialisasi rute
-initApp().catch(err => {
+startServer().catch(err => {
   console.error('Failed to start server:', err);
 });
-
-// WAJIB DITAMBAHKAN UNTUK VERCEL SERVERLESS FUNCTION:
-export default app;
+export {};
