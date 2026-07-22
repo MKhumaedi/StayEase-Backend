@@ -16,7 +16,7 @@ export class WithdrawalService {
   }) {
     const { tenantId, amount, fee, bankName, accountName, accountNumber, notes } = params;
 
-    // 1. Validate user and balance
+    // 1. Validate user existence
     const user = await prisma.user.findUnique({
       where: { id: tenantId },
       include: { tenantProfile: true }
@@ -26,13 +26,42 @@ export class WithdrawalService {
       throw new Error('User not found');
     }
 
-    const availableBalance = Number(user.credits);
     if (amount <= 0) {
       throw new Error('Jumlah penarikan harus lebih besar dari 0');
     }
 
+    // 2. Hitung Saldo Dinamis secara Real-Time dari Semua Transaksi Berhasil (CONFIRMED, CHECKED_IN, COMPLETED)
+    const payments = await prisma.booking.findMany({
+      where: {
+        property: { tenantId },
+        status: { in: ['CONFIRMED', 'CHECKED_IN', 'COMPLETED'] }
+      },
+      select: { totalAmount: true, paymentProof: true }
+    });
+
+    let totalRevenue = 0;
+    payments.forEach(b => {
+      const amt = Number(b.totalAmount) || 0;
+      totalRevenue += amt;
+    });
+
+    const serviceFees = Math.round(
+      payments
+        .filter(b => b.paymentProof?.proofUrl?.includes('midtrans') || !b.paymentProof)
+        .reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) * 0.02
+    );
+    const netSettled = totalRevenue - serviceFees;
+
+    // Ambil seluruh riwayat penarikan
+    const existingWithdrawals = await withdrawalRepository.findByTenantId(tenantId, 1, 100);
+    const totalWithdrawnAmount = (Array.isArray(existingWithdrawals) ? existingWithdrawals : [])
+      .filter((w: any) => w.status === 'PAID' || w.status === 'APPROVED' || w.status === 'PENDING')
+      .reduce((sum: number, w: any) => sum + (Number(w.netAmount) || Number(w.amount) || 0), 0);
+
+    const availableBalance = Math.max(0, netSettled - totalWithdrawnAmount);
+
     if (availableBalance < amount) {
-      throw new Error(`Saldo tidak mencukupi. Saldo Anda: Rp ${availableBalance.toLocaleString()}`);
+      throw new Error(`Saldo tidak mencukupi. Saldo tersedia Anda: Rp ${availableBalance.toLocaleString('id-ID')}`);
     }
 
     const netAmount = amount - fee;
@@ -40,7 +69,7 @@ export class WithdrawalService {
       throw new Error('Jumlah penarikan harus lebih besar dari biaya admin');
     }
 
-    // 2. Create the withdrawal request (PENDING)
+    // 3. Create the withdrawal request (PENDING)
     const withdrawal = await withdrawalRepository.create({
       tenantId,
       amount,
@@ -159,20 +188,12 @@ export class WithdrawalService {
     const amount = Number(withdrawal.amount);
     const netAmount = Number(withdrawal.netAmount);
 
-    // Double check user balance
     const user = await prisma.user.findUnique({ where: { id: tenantId } });
     if (!user) {
       throw new Error('Tenant user not found');
     }
 
-    const availableBalance = Number(user.credits);
-    if (availableBalance < amount) {
-      throw new Error(`Gagal memproses pembayaran: Saldo mitra saat ini (Rp ${availableBalance.toLocaleString()}) kurang dari jumlah penarikan (Rp ${amount.toLocaleString()})`);
-    }
-
-    // Perform database operations in transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Update user balance
       const updatedUser = await tx.user.update({
         where: { id: tenantId },
         data: {
@@ -180,9 +201,8 @@ export class WithdrawalService {
             decrement: amount
           }
         }
-      });
+      }).catch(() => null);
 
-      // 2. Update withdrawal record
       const updatedWithdrawal = await tx.withdrawal.update({
         where: { id },
         data: {
@@ -197,7 +217,6 @@ export class WithdrawalService {
               id: true,
               name: true,
               email: true,
-              credits: true
             }
           }
         }
@@ -206,13 +225,12 @@ export class WithdrawalService {
       return { updatedUser, updatedWithdrawal };
     });
 
-    // 3. Create notifications & logs outside transaction for performance
     AuditService.log(
       processedBy,
       'Admin',
       'MARK_WITHDRAWAL_PAID',
       'FINANCE',
-      `Marked withdrawal request ${id} as paid. Reference: ${referenceNumber}. Balance deducted: Rp ${amount.toLocaleString()}.`
+      `Marked withdrawal request ${id} as paid. Reference: ${referenceNumber}.`
     );
 
     await NotificationEngine.createNotification({

@@ -1,5 +1,15 @@
 import { Property, Room, Review, Booking, User, UserRole, BookingStatus } from '../../../frontend/src/types';
 
+// Helper untuk menghasilkan string tanggal YYYY-MM-DD yang dinamis relatif terhadap hari ini
+const getDynamicDateStr = (offsetDays = 0): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const SEED_USERS: User[] = [
   {
     id: 'u1',
@@ -170,7 +180,7 @@ export const SEED_REVIEWS: Review[] = [
     guestAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&q=80',
     rating: 5,
     comment: 'The property exceeded all expectations. Julian was an incredible host, very communicative and the check-in process was seamless.',
-    createdAt: '2026-05-12'
+    createdAt: getDynamicDateStr(-70)
   },
   {
     id: 'rev-2',
@@ -180,9 +190,9 @@ export const SEED_REVIEWS: Review[] = [
     guestAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80',
     rating: 4,
     comment: 'Great location and very stylish space. The wifi was a bit spotty during the first day but Julian resolved it quickly.',
-    createdAt: '2026-05-08',
+    createdAt: getDynamicDateStr(-74),
     replyComment: 'Thanks for the feedback Marcus! Glad we could get the connectivity issues sorted. We’ve since upgraded our router to ensure 100% stability.',
-    replyDate: '2026-05-09'
+    replyDate: getDynamicDateStr(-73)
   }
 ];
 
@@ -193,12 +203,13 @@ export const SEED_BOOKINGS: Booking[] = [
     guestId: 'u1',
     propertyId: 'prop-4',
     roomId: 'room-101',
-    startDate: '2026-10-12',
-    endDate: '2026-10-15',
+    // Tanggal booking dinamis (Hari ini -> 3 Hari ke depan)
+    startDate: getDynamicDateStr(0),
+    endDate: getDynamicDateStr(3),
     nights: 3,
     totalAmount: 1240.00,
     status: BookingStatus.CONFIRMED,
-    createdAt: '2026-06-11T05:00:00Z',
+    createdAt: new Date().toISOString(),
     guestName: 'John Doe',
     guestEmail: 'john.doe@example.com',
     guestPhone: '+1 123-456-7890',
@@ -209,12 +220,13 @@ export const SEED_BOOKINGS: Booking[] = [
     bookingCode: 'BK-4422',
     guestId: 'u4',
     propertyId: 'prop-1',
-    startDate: '2026-10-14',
-    endDate: '2026-10-20',
+    // Tanggal booking dinamis (2 hari ke depan -> 8 Hari ke depan)
+    startDate: getDynamicDateStr(2),
+    endDate: getDynamicDateStr(8),
     nights: 6,
     totalAmount: 3500.00,
     status: BookingStatus.PENDING,
-    createdAt: '2026-06-11T03:00:00Z',
+    createdAt: new Date().toISOString(),
     guestName: 'Sarah Miller',
     guestEmail: 'sarah.m@webmail.com',
     guestPhone: '+1 321-654-0987'

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "log-1784712922740-771",
+    "userId": "c465b428-fd3b-48a0-8057-7f936f9ca847",
+    "userName": "M Khumaedi",
+    "action": "CREATE_WITHDRAWAL_REQUEST",
+    "module": "FINANCE",
+    "details": "Requested withdrawal of Rp 20.000 (Net: Rp 15.000) to Bank Mandiri 8291-0391-77",
+    "timestamp": "2026-07-22T09:35:22.740Z"
+  }
+]

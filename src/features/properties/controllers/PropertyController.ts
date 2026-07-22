@@ -7,6 +7,16 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { RoomStatus } from '@prisma/client';
 
+// Helper untuk mengambil tanggal hari ini & offset hari (YYYY-MM-DD) secara dinamis
+const getDynamicDateString = (offsetDays = 0): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export class PropertyController {
   private async autoInitializeProperties(): Promise<void> {
     try {
@@ -302,8 +312,9 @@ export class PropertyController {
       if (!allowed) return res.status(403).json({ error: 'Access denied: belongs to another host.' }) as any;
       const rooms = await propertyRepository.findRoomsByPropertyId(property.id);
 
-      // Extract check-in / check-out dates from request parameters or fallback to frontend defaults for dynamic room status
-      const checkInStr = (req.query.checkIn as string) || (req.query.start as string) || (req.query.startDate as string) || '2026-10-12';
+      // Tanggal check-in / check-out dibuat dinamis dengan hari ini jika tidak ada dalam kueri
+      const defaultCheckIn = getDynamicDateString(0); // Hari ini
+      const checkInStr = (req.query.checkIn as string) || (req.query.start as string) || (req.query.startDate as string) || defaultCheckIn;
       let checkOutStr = (req.query.checkOut as string) || (req.query.end as string) || (req.query.endDate as string);
       
       if (!checkOutStr) {
@@ -313,7 +324,7 @@ export class PropertyController {
         try {
           checkOutStr = d.toISOString().split('T')[0];
         } catch (e) {
-          checkOutStr = '2026-10-15';
+          checkOutStr = getDynamicDateString(3); // Default 3 hari ke depan
         }
       }
 
