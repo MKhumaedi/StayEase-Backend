@@ -12,6 +12,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 
 import express from 'express';
+import cors from 'cors'; // <-- Package cors resmi
 import fs from 'fs';
 import { getSupabaseClient } from './features/auth/services/supabase';
 
@@ -153,49 +154,54 @@ async function setupDatabaseTriggers() {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', process.env.TRUST_PROXY || 1);
   let PORT = Number(process.env.PORT || 5000);
-  
-  // Hardened port allocation: prevent dev conflicts when concurrently starts on PORT=3000
+
+
   if (process.env.NODE_ENV !== 'production' && PORT === 3000) {
     PORT = 5000;
   }
 
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      
+      if (!origin) return callback(null, true);
+
+      const cleanOrigin = origin.trim().toLowerCase().replace(/\/$/, '');
+      
+      
+      if (
+        cleanOrigin === 'https://stayease.online' ||
+        cleanOrigin === 'https://www.stayease.online' ||
+        cleanOrigin === 'https://api.stayease.online' ||
+        cleanOrigin.endsWith('.stayease.online') ||
+        cleanOrigin.includes('localhost') ||
+        cleanOrigin.includes('127.0.0.1')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'X-Idempotency-Key',
+      'Idempotency-Key',
+      'X-Client-Platform',
+      'Accept',
+      'Origin'
+    ],
+    maxAge: 86400
+  }));
+
+  // Tangani Preflight OPTIONS secara eksplisit
+  app.options('*', cors());
+
   app.use(express.json());
-
-  // CORS Middleware
-  app.use((req, res, next) => {
-    const origin = req.headers.origin || '';
-    
-    // Parse allowed origins from environment
-    const configuredOrigins = process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : [];
-
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5000',
-      'http://localhost:5173',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:5173',
-      ...configuredOrigins
-    ];
-
-    if (allowedOrigins.includes(origin) || process.env.CORS_ORIGIN === '*') {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else if (process.env.NODE_ENV !== 'production') {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Platform');
-    
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(200);
-      return;
-    }
-    next();
-  });
 
   // GET /health check endpoint
   app.get('/health', async (req, res) => {
