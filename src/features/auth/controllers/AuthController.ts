@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import path from 'path';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
@@ -41,15 +42,20 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage,
   limits: {
-    fileSize: 2 * 1024 * 1024 // 2MB Limit
+    fileSize: 1 * 1024 * 1024 // 1MB Limit
   },
   fileFilter: (req: any, file: any, cb: any) => {
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only JPG, JPEG, PNG, and WEBP are allowed.') as any, false);
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const mime = (file.mimetype || '').toLowerCase();
+
+    if (!allowedMimeTypes.includes(mime) || !allowedExtensions.includes(ext)) {
+      return cb(new Error('Format gambar tidak didukung. Gunakan JPG, JPEG, PNG, atau WEBP.'), false);
     }
+
+    cb(null, true);
   }
 });
 
@@ -374,19 +380,50 @@ export class AuthController {
         return;
       }
 
-      if (!req.file) {
-        res.status(400).json({ error: 'Please upload an image file (max 2 MB).' });
+      if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+        res.status(400).json({ error: 'Silakan pilih gambar terlebih dahulu.' });
         return;
       }
 
       const file = req.file;
+
+      // Validate maximum file size (1 MB)
+      if (file.size > 1 * 1024 * 1024) {
+        res.status(400).json({ error: 'Ukuran gambar maksimal 1 MB.' });
+        return;
+      }
+
+      // Validate MIME type & file extension
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const mime = (file.mimetype || '').toLowerCase();
+
+      if (!allowedMimeTypes.includes(mime) || !allowedExtensions.includes(ext)) {
+        res.status(400).json({ error: 'Format gambar tidak didukung. Gunakan JPG, JPEG, PNG, atau WEBP.' });
+        return;
+      }
+
+      // Validate Magic Bytes to prevent MIME spoofing / executable upload / corrupted images
+      const buffer = file.buffer;
+      const isJpeg = buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+      const isPng = buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+      const isWebp = buffer.length >= 12 && 
+        buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && // 'RIFF'
+        buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50; // 'WEBP'
+
+      if (!isJpeg && !isPng && !isWebp) {
+        res.status(400).json({ error: 'Format gambar tidak didukung. Gunakan JPG, JPEG, PNG, atau WEBP.' });
+        return;
+      }
+
       const supabase = getSupabaseAdmin();
 
       // Ensure the storage bucket exists
       try {
         await supabase.storage.createBucket('avatars', {
           public: true,
-          fileSizeLimit: 2 * 1024 * 1024,
+          fileSizeLimit: 1 * 1024 * 1024,
           allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
         });
       } catch (err) {
@@ -399,7 +436,7 @@ export class AuthController {
       const { data, error } = await supabase.storage
         .from('avatars')
         .upload(storagePath, file.buffer, {
-          contentType: 'image/webp',
+          contentType: file.mimetype || 'image/webp',
           upsert: true
         });
 
