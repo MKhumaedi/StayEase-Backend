@@ -67,6 +67,9 @@ export class UploadController {
       } else {
         // Local mode url
         fileUrl = `/uploads/properties/${file.filename}`;
+        // Production Mode
+        // const baseUrl = process.env.API_URL || 'https://api.stayease.online';
+        // fileUrl = `${baseUrl}/uploads/properties/${file.filename}`;
       }
 
       const cleanWebpName = file.filename.replace(ext, '.webp');
