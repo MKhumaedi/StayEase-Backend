@@ -12,9 +12,12 @@ export class UploadController {
         return;
       }
       const ext = path.extname(file.originalname).toLowerCase();
-      const valid = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(ext);
+      const valid = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext);
       if (!valid) {
-        res.status(400).json({ error: 'Allowed types: JPG, JPEG, PNG, WEBP, PDF' });
+        if (file.path && fs.existsSync(file.path)) {
+          try { fs.unlinkSync(file.path); } catch (e) {}
+        }
+        res.status(400).json({ error: 'Invalid file type. Only JPG, JPEG, PNG, and WEBP images are allowed.' });
         return;
       }
 
@@ -29,14 +32,14 @@ export class UploadController {
         try {
           await supabase.storage.createBucket(bucketName, {
             public: true,
-            fileSizeLimit: 10 * 1024 * 1024
+            fileSizeLimit: 1 * 1024 * 1024
           });
         } catch (e) {
           // Bucket might already exist, which is fine
         }
 
         const fileContent = fs.readFileSync(file.path);
-        const fileName = `${Date.now()}-${path.basename(file.filename)}`;
+        const fileName = `properties/${Date.now()}-${path.basename(file.filename)}`;
         
         const { data, error } = await supabase.storage
           .from(bucketName)
@@ -63,7 +66,7 @@ export class UploadController {
         }
       } else {
         // Local mode url
-        fileUrl = `/uploads/${file.filename}`;
+        fileUrl = `/uploads/properties/${file.filename}`;
       }
 
       const cleanWebpName = file.filename.replace(ext, '.webp');
