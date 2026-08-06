@@ -29,9 +29,24 @@ export class ReviewService {
       throw new Error('Access denied: You can only review your own bookings.');
     }
 
-    if (booking.status !== 'COMPLETED') {
+
+    /* LOGIC TERBARU: Pengecekan status dinamis & inklusif (COMPLETED / CHECKED_OUT) */
+
+    const normalizedStatus = booking.status ? booking.status.toUpperCase() : '';
+    const currentDate = new Date();
+    const endDate = new Date(booking.endDate);
+
+    const isFinishedByStatus = 
+      normalizedStatus === 'COMPLETED' || 
+      normalizedStatus === 'CHECKED_OUT' || 
+      normalizedStatus === 'SELESAI';
+
+    const isFinishedByDate = currentDate >= endDate;
+
+    if (!isFinishedByStatus && !isFinishedByDate) {
       throw new Error('You can only submit a review for completed stays.');
     }
+    /* ========================================================================= */
 
     // Check duplicate review
     const existing = await reviewRepository.findByBookingId(data.bookingId);
@@ -59,10 +74,18 @@ export class ReviewService {
       comment: data.comment.trim()
     });
 
-    // 4. Recalculate property average score and count
+    // 4. Update status booking menjadi COMPLETED jika sebelumnya masih CHECKED_OUT
+    if (normalizedStatus !== 'COMPLETED') {
+      await prisma.booking.update({
+        where: { id: data.bookingId },
+        data: { status: 'COMPLETED' }
+      });
+    }
+
+    // 5. Recalculate property average score and count
     await this.updatePropertyMetrics(booking.propertyId);
 
-    // 5. Build and send notification to the Host (property owner/tenant)
+    // 6. Build and send notification to the Host (property owner/tenant)
     try {
       const pName = booking.property?.name || 'your property';
       await NotificationEngine.createNotification({
